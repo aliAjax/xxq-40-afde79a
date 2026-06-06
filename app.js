@@ -10,6 +10,8 @@ let advancedFilter = {
     deadlineEnd: ''
 };
 let filterCollapsed = false;
+let selectedIds = [];
+let currentBatchAction = null;
 
 function getDocuments() {
     const data = localStorage.getItem(STORAGE_KEY);
@@ -221,6 +223,7 @@ function renderDocumentList() {
         const status = getDocumentStatus(doc);
         const statusText = getStatusText(status);
         const daysRemaining = getDaysRemaining(doc.deadline);
+        const isSelected = selectedIds.includes(doc.id);
         
         let deadlineClass = '';
         let deadlineText = formatDate(doc.deadline);
@@ -245,7 +248,10 @@ function renderDocumentList() {
         `;
 
         return `
-            <div class="document-card status-${status}" onclick="viewDocument('${doc.id}')">
+            <div class="document-card status-${status} ${isSelected ? 'selected' : ''}" onclick="viewDocument('${doc.id}')">
+                <div class="doc-card-checkbox" onclick="event.stopPropagation(); toggleSelect('${doc.id}')">
+                    <span class="card-checkbox ${isSelected ? 'checked' : ''}">${isSelected ? '✓' : ''}</span>
+                </div>
                 <div class="doc-header">
                     <div class="doc-title">${escapeHtml(doc.title)}</div>
                     <div class="doc-tags">
@@ -277,6 +283,8 @@ function renderDocumentList() {
             </div>
         `;
     }).join('');
+
+    updateBatchToolbar();
 }
 
 function escapeHtml(text) {
@@ -285,8 +293,185 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function toggleSelect(id) {
+    const index = selectedIds.indexOf(id);
+    if (index > -1) {
+        selectedIds.splice(index, 1);
+    } else {
+        selectedIds.push(id);
+    }
+    renderDocumentList();
+}
+
+function toggleSelectAll() {
+    const documents = getDocuments();
+    const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
+    
+    if (selectedIds.length === filtered.length && filtered.length > 0) {
+        selectedIds = [];
+    } else {
+        selectedIds = filtered.map(doc => doc.id);
+    }
+    renderDocumentList();
+}
+
+function clearSelection() {
+    selectedIds = [];
+    renderDocumentList();
+}
+
+function updateBatchToolbar() {
+    const toolbar = document.getElementById('batchToolbar');
+    const countEl = document.getElementById('selectedCount');
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    const batchCompleteBtn = document.getElementById('batchCompleteBtn');
+    
+    if (selectedIds.length > 0) {
+        toolbar.style.display = 'flex';
+        countEl.textContent = selectedIds.length;
+    } else {
+        toolbar.style.display = 'none';
+    }
+    
+    const documents = getDocuments();
+    const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
+    selectAllCheckbox.checked = filtered.length > 0 && selectedIds.length === filtered.length;
+    
+    const documentsData = getDocuments();
+    const hasUncompleted = selectedIds.some(id => {
+        const doc = documentsData.find(d => d.id === id);
+        return doc && !doc.completed;
+    });
+    batchCompleteBtn.style.display = hasUncompleted ? 'inline-flex' : 'none';
+}
+
+function getSelectedDocuments() {
+    const documents = getDocuments();
+    return documents.filter(doc => selectedIds.includes(doc.id));
+}
+
+function buildBatchPreviewList(containerId) {
+    const selectedDocs = getSelectedDocuments();
+    const container = document.getElementById(containerId);
+    container.innerHTML = selectedDocs.map(doc => `
+        <div class="batch-preview-item">${escapeHtml(doc.title)}</div>
+    `).join('');
+}
+
+function openBatchCompleteModal() {
+    if (selectedIds.length === 0) return;
+    
+    const selectedDocs = getSelectedDocuments();
+    const uncompletedDocs = selectedDocs.filter(doc => !doc.completed);
+    
+    if (uncompletedDocs.length === 0) {
+        showToast('所选收文均已办结', 'info');
+        return;
+    }
+    
+    currentBatchAction = 'complete';
+    document.getElementById('batchConfirmTitle').textContent = '批量办结确认';
+    document.getElementById('batchConfirmMessage').innerHTML = 
+        `确定要将选中的 <span>${uncompletedDocs.length}</span> 条收文标记为已办结吗？`;
+    document.getElementById('batchConfirmBtn').className = 'btn btn-success';
+    
+    buildBatchPreviewList('batchPreviewList');
+    document.getElementById('batchConfirmModal').classList.add('show');
+}
+
+function openBatchDeleteModal() {
+    if (selectedIds.length === 0) return;
+    
+    currentBatchAction = 'delete';
+    document.getElementById('batchConfirmTitle').textContent = '批量删除确认';
+    document.getElementById('batchConfirmMessage').innerHTML = 
+        `确定要删除选中的 <span>${selectedIds.length}</span> 条收文吗？此操作不可恢复。`;
+    document.getElementById('batchConfirmBtn').className = 'btn btn-danger';
+    
+    buildBatchPreviewList('batchPreviewList');
+    document.getElementById('batchConfirmModal').classList.add('show');
+}
+
+function closeBatchConfirmModal() {
+    document.getElementById('batchConfirmModal').classList.remove('show');
+    currentBatchAction = null;
+}
+
+function executeBatchAction() {
+    if (!currentBatchAction) return;
+    
+    const documents = getDocuments();
+    
+    if (currentBatchAction === 'complete') {
+        let count = 0;
+        const updatedDocs = documents.map(doc => {
+            if (selectedIds.includes(doc.id) && !doc.completed) {
+                count++;
+                return {
+                    ...doc,
+                    completed: true,
+                    completedAt: new Date().toISOString()
+                };
+            }
+            return doc;
+        });
+        saveDocuments(updatedDocs);
+        showToast(`成功办结 ${count} 条收文`, 'success');
+    } else if (currentBatchAction === 'delete') {
+        const count = selectedIds.length;
+        const filtered = documents.filter(doc => !selectedIds.includes(doc.id));
+        saveDocuments(filtered);
+        showToast(`成功删除 ${count} 条收文`, 'success');
+    }
+    
+    selectedIds = [];
+    closeBatchConfirmModal();
+    updateStats();
+    renderDocumentList();
+}
+
+function openBatchDepartmentModal() {
+    if (selectedIds.length === 0) return;
+    
+    document.getElementById('batchDeptCount').textContent = selectedIds.length;
+    document.getElementById('batchDepartmentSelect').value = '';
+    buildBatchPreviewList('batchDeptPreviewList');
+    document.getElementById('batchDepartmentModal').classList.add('show');
+}
+
+function closeBatchDepartmentModal() {
+    document.getElementById('batchDepartmentModal').classList.remove('show');
+}
+
+function executeBatchDepartment(e) {
+    e.preventDefault();
+    
+    const newDepartment = document.getElementById('batchDepartmentSelect').value;
+    if (!newDepartment) {
+        showToast('请选择承办科室', 'error');
+        return;
+    }
+    
+    const documents = getDocuments();
+    const count = selectedIds.length;
+    const updatedDocs = documents.map(doc => {
+        if (selectedIds.includes(doc.id)) {
+            return { ...doc, department: newDepartment };
+        }
+        return doc;
+    });
+    
+    saveDocuments(updatedDocs);
+    showToast(`成功修改 ${count} 条收文的承办科室`, 'success');
+    
+    closeBatchDepartmentModal();
+    updateStats();
+    renderDocumentList();
+}
+
 function switchTab(tab) {
     currentTab = tab;
+    selectedIds = [];
     document.querySelectorAll('.tab').forEach(t => {
         t.classList.remove('active');
     });
@@ -296,6 +481,7 @@ function switchTab(tab) {
 
 function searchDocuments() {
     searchKeyword = document.getElementById('searchInput').value.trim();
+    selectedIds = [];
     renderDocumentList();
 }
 
@@ -316,6 +502,7 @@ function applyAdvancedFilter() {
     advancedFilter.receiveDateEnd = document.getElementById('filterReceiveDateEnd').value;
     advancedFilter.deadlineStart = document.getElementById('filterDeadlineStart').value;
     advancedFilter.deadlineEnd = document.getElementById('filterDeadlineEnd').value;
+    selectedIds = [];
     updateFilterActiveBadge();
     renderDocumentList();
 }
@@ -335,6 +522,7 @@ function clearAdvancedFilter() {
     document.getElementById('filterReceiveDateEnd').value = '';
     document.getElementById('filterDeadlineStart').value = '';
     document.getElementById('filterDeadlineEnd').value = '';
+    selectedIds = [];
     updateFilterActiveBadge();
     renderDocumentList();
 }
@@ -447,6 +635,12 @@ function completeDocument(id) {
         documents[index].completed = true;
         documents[index].completedAt = new Date().toISOString();
         saveDocuments(documents);
+        
+        const selIndex = selectedIds.indexOf(id);
+        if (selIndex > -1) {
+            selectedIds.splice(selIndex, 1);
+        }
+        
         updateStats();
         renderDocumentList();
         showToast('收文已办结', 'success');
@@ -459,6 +653,12 @@ function deleteDocument(id) {
     const documents = getDocuments();
     const filtered = documents.filter(d => d.id !== id);
     saveDocuments(filtered);
+    
+    const selIndex = selectedIds.indexOf(id);
+    if (selIndex > -1) {
+        selectedIds.splice(selIndex, 1);
+    }
+    
     updateStats();
     renderDocumentList();
     showToast('收文已删除', 'success');
@@ -568,6 +768,8 @@ function init() {
         if (e.key === 'Escape') {
             closeModal();
             closeDetailModal();
+            closeBatchConfirmModal();
+            closeBatchDepartmentModal();
         }
     });
 

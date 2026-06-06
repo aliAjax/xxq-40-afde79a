@@ -139,6 +139,31 @@
             </div>
         </div>
 
+        <div class="batch-toolbar" id="batchToolbar" style="display: none;">
+            <div class="batch-left">
+                <label class="batch-checkbox-label">
+                    <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()">
+                    <span class="custom-checkbox"></span>
+                    全选
+                </label>
+                <span class="batch-count">已选 <span id="selectedCount">0</span> 条</span>
+            </div>
+            <div class="batch-actions">
+                <button class="btn btn-success btn-sm" onclick="openBatchCompleteModal()" id="batchCompleteBtn">
+                    <span class="btn-icon">✓</span> 批量办结
+                </button>
+                <button class="btn btn-primary btn-sm" onclick="openBatchDepartmentModal()">
+                    <span class="btn-icon">🏢</span> 修改科室
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="openBatchDeleteModal()">
+                    <span class="btn-icon">🗑</span> 批量删除
+                </button>
+                <button class="btn btn-default btn-sm" onclick="clearSelection()">
+                    <span class="btn-icon">✕</span> 取消选择
+                </button>
+            </div>
+        </div>
+
         <div class="content">
             <div class="document-list" id="documentList">
                 <div class="empty-state">
@@ -236,6 +261,56 @@
             </div>
             <div class="modal-footer" id="detailActions">
             </div>
+        </div>
+    </div>
+
+    <div class="modal" id="batchConfirmModal">
+        <div class="modal-overlay" onclick="closeBatchConfirmModal()"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2 id="batchConfirmTitle">确认操作</h2>
+                <button class="modal-close" onclick="closeBatchConfirmModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="batchConfirmMessage" class="batch-confirm-text"></p>
+                <div class="batch-preview-list" id="batchPreviewList"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" onclick="closeBatchConfirmModal()">取消</button>
+                <button type="button" class="btn" id="batchConfirmBtn" onclick="executeBatchAction()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="batchDepartmentModal">
+        <div class="modal-overlay" onclick="closeBatchDepartmentModal()"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>批量修改承办科室</h2>
+                <button class="modal-close" onclick="closeBatchDepartmentModal()">✕</button>
+            </div>
+            <form id="batchDepartmentForm" class="modal-body" onsubmit="executeBatchDepartment(event)">
+                <p class="batch-confirm-text">将以下 <span id="batchDeptCount">0</span> 条收文的承办科室修改为：</p>
+                <div class="form-group">
+                    <label class="form-label" for="batchDepartmentSelect">承办科室 <span class="required">*</span></label>
+                    <select id="batchDepartmentSelect" class="form-input" required>
+                        <option value="">请选择承办科室</option>
+                        <option value="办公室">办公室</option>
+                        <option value="综合科">综合科</option>
+                        <option value="业务一科">业务一科</option>
+                        <option value="业务二科">业务二科</option>
+                        <option value="法制科">法制科</option>
+                        <option value="财务科">财务科</option>
+                        <option value="人事科">人事科</option>
+                        <option value="信息科">信息科</option>
+                    </select>
+                </div>
+                <div class="batch-preview-list" id="batchDeptPreviewList"></div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeBatchDepartmentModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">确认修改</button>
+                </div>
+            </form>
         </div>
     </div>
 

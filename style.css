@@ -237,6 +237,11 @@ body {
     font-size: 14px;
 }
 
+.btn-sm {
+    padding: 6px 14px;
+    font-size: 13px;
+}
+
 .filter-section {
     background: white;
     border-radius: 12px;
@@ -412,6 +417,86 @@ body {
     color: #52c41a;
 }
 
+.batch-toolbar {
+    background: white;
+    border-radius: 10px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.batch-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.batch-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333;
+    user-select: none;
+}
+
+.batch-checkbox-label input[type="checkbox"] {
+    display: none;
+}
+
+.custom-checkbox {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #d9d9d9;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    background: white;
+    flex-shrink: 0;
+}
+
+.batch-checkbox-label:hover .custom-checkbox {
+    border-color: #c41e3a;
+}
+
+.batch-checkbox-label input[type="checkbox"]:checked + .custom-checkbox {
+    background: #c41e3a;
+    border-color: #c41e3a;
+}
+
+.batch-checkbox-label input[type="checkbox"]:checked + .custom-checkbox::after {
+    content: '✓';
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.batch-count {
+    font-size: 14px;
+    color: #666;
+}
+
+.batch-count span {
+    color: #c41e3a;
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 2px;
+}
+
+.batch-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .content {
     min-height: 400px;
 }
@@ -430,6 +515,7 @@ body {
     transition: transform 0.2s, box-shadow 0.2s;
     cursor: pointer;
     border-left: 4px solid transparent;
+    position: relative;
 }
 
 .document-card:hover {
@@ -454,12 +540,53 @@ body {
     opacity: 0.8;
 }
 
+.document-card.selected {
+    border-left-color: #c41e3a;
+    box-shadow: 0 4px 16px rgba(196, 30, 58, 0.15);
+    background: #fffafb;
+}
+
+.doc-card-checkbox {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 2;
+}
+
+.doc-card-checkbox .card-checkbox {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #d9d9d9;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    background: white;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: bold;
+    color: transparent;
+    user-select: none;
+}
+
+.doc-card-checkbox:hover .card-checkbox {
+    border-color: #c41e3a;
+}
+
+.doc-card-checkbox .card-checkbox.checked {
+    background: #c41e3a;
+    border-color: #c41e3a;
+    color: white;
+}
+
 .doc-header {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 12px;
     gap: 16px;
+    position: relative;
 }
 
 .doc-title {
@@ -799,6 +926,51 @@ body {
     display: inline-block;
 }
 
+.modal-small .modal-content {
+    max-width: 480px;
+}
+
+.batch-confirm-text {
+    font-size: 15px;
+    color: #333;
+    margin-bottom: 16px;
+    line-height: 1.6;
+}
+
+.batch-confirm-text span {
+    color: #c41e3a;
+    font-weight: 600;
+}
+
+.batch-preview-list {
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #f0f0f0;
+}
+
+.batch-preview-item {
+    padding: 8px 10px;
+    font-size: 13px;
+    color: #666;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.batch-preview-item:last-child {
+    border-bottom: none;
+}
+
+.batch-preview-item::before {
+    content: '•';
+    color: #c41e3a;
+    font-weight: bold;
+}
+
 .toast {
     position: fixed;
     top: 24px;
@@ -860,6 +1032,19 @@ body {
 
     .search-box {
         max-width: none;
+    }
+
+    .batch-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .batch-left {
+        justify-content: space-between;
+    }
+
+    .batch-actions {
+        justify-content: center;
     }
 
     .filter-row {
