@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'document_registry_data';
+const TEMPLATE_STORAGE_KEY = 'document_templates';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
 let currentView = 'list';
 let currentTab = 'pending';
@@ -29,6 +30,169 @@ function getDocuments() {
 
 function saveDocuments(documents) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(documents));
+}
+
+function getTemplates() {
+    const data = localStorage.getItem(TEMPLATE_STORAGE_KEY);
+    if (!data) return [];
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveTemplates(templates) {
+    localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+}
+
+function renderTemplateSelect() {
+    const templates = getTemplates();
+    const selectEl = document.getElementById('templateSelect');
+    const deleteBtn = document.getElementById('deleteTemplateBtn');
+    
+    let html = '<option value="">选择模板快速填充...</option>';
+    templates.forEach(function(tpl) {
+        html += `<option value="${tpl.id}">${escapeHtml(tpl.name)}</option>`;
+    });
+    selectEl.innerHTML = html;
+    
+    if (templates.length === 0) {
+        deleteBtn.style.display = 'none';
+    }
+}
+
+function applyTemplate(templateId) {
+    const deleteBtn = document.getElementById('deleteTemplateBtn');
+    if (!templateId) {
+        deleteBtn.style.display = 'none';
+        return;
+    }
+    
+    const templates = getTemplates();
+    const tpl = templates.find(function(t) { return t.id === templateId; });
+    if (!tpl) return;
+    
+    document.getElementById('fromUnit').value = tpl.fromUnit || '';
+    document.getElementById('urgency').value = tpl.urgency || '普通';
+    document.getElementById('department').value = tpl.department || '';
+    document.getElementById('remark').value = tpl.remark || '';
+    
+    if (tpl.deadlineDays && tpl.deadlineDays > 0) {
+        const receiveDate = document.getElementById('receiveDate').value;
+        if (receiveDate) {
+            const deadline = new Date(receiveDate);
+            deadline.setDate(deadline.getDate() + parseInt(tpl.deadlineDays));
+            document.getElementById('deadline').value = formatDateInput(deadline);
+        }
+    }
+    
+    deleteBtn.style.display = 'inline-flex';
+    showToast('已应用模板：' + tpl.name, 'info');
+}
+
+function openSaveTemplateModal() {
+    const fromUnit = document.getElementById('fromUnit').value.trim();
+    const urgency = document.getElementById('urgency').value;
+    const department = document.getElementById('department').value;
+    const deadline = document.getElementById('deadline').value;
+    const receiveDate = document.getElementById('receiveDate').value;
+    const remark = document.getElementById('remark').value.trim();
+    
+    if (!fromUnit || !department) {
+        showToast('请至少填写来文单位和承办科室后再保存模板', 'error');
+        return;
+    }
+    
+    document.getElementById('templateName').value = '';
+    document.getElementById('previewFromUnit').textContent = fromUnit || '-';
+    document.getElementById('previewUrgency').textContent = urgency || '-';
+    document.getElementById('previewDepartment').textContent = department || '-';
+    
+    let deadlineText = '-';
+    if (deadline && receiveDate) {
+        const days = Math.ceil((new Date(deadline) - new Date(receiveDate)) / (1000 * 60 * 60 * 24));
+        if (days >= 0) {
+            deadlineText = days + ' 天';
+        }
+    }
+    document.getElementById('previewDeadline').textContent = deadlineText;
+    document.getElementById('previewRemark').textContent = remark ? remark.substring(0, 30) + (remark.length > 30 ? '...' : '') : '-';
+    
+    document.getElementById('saveTemplateModal').classList.add('show');
+    setTimeout(function() {
+        document.getElementById('templateName').focus();
+    }, 100);
+}
+
+function closeSaveTemplateModal() {
+    document.getElementById('saveTemplateModal').classList.remove('show');
+}
+
+function saveTemplate(e) {
+    e.preventDefault();
+    
+    const name = document.getElementById('templateName').value.trim();
+    if (!name) {
+        showToast('请输入模板名称', 'error');
+        return;
+    }
+    
+    const fromUnit = document.getElementById('fromUnit').value.trim();
+    const urgency = document.getElementById('urgency').value;
+    const department = document.getElementById('department').value;
+    const deadline = document.getElementById('deadline').value;
+    const receiveDate = document.getElementById('receiveDate').value;
+    const remark = document.getElementById('remark').value.trim();
+    
+    let deadlineDays = 7;
+    if (deadline && receiveDate) {
+        deadlineDays = Math.ceil((new Date(deadline) - new Date(receiveDate)) / (1000 * 60 * 60 * 24));
+        if (deadlineDays < 0) deadlineDays = 7;
+    }
+    
+    const templates = getTemplates();
+    const newTemplate = {
+        id: generateId(),
+        name: name,
+        fromUnit: fromUnit,
+        urgency: urgency,
+        department: department,
+        deadlineDays: deadlineDays,
+        remark: remark,
+        createdAt: new Date().toISOString()
+    };
+    
+    templates.unshift(newTemplate);
+    saveTemplates(templates);
+    renderTemplateSelect();
+    
+    closeSaveTemplateModal();
+    showToast('模板保存成功', 'success');
+}
+
+function deleteCurrentTemplate() {
+    const selectEl = document.getElementById('templateSelect');
+    const templateId = selectEl.value;
+    if (!templateId) {
+        showToast('请先选择要删除的模板', 'error');
+        return;
+    }
+    
+    const templates = getTemplates();
+    const tpl = templates.find(function(t) { return t.id === templateId; });
+    if (!tpl) return;
+    
+    if (!confirm('确定要删除模板「' + tpl.name + '」吗？此操作不可恢复。')) {
+        return;
+    }
+    
+    const filtered = templates.filter(function(t) { return t.id !== templateId; });
+    saveTemplates(filtered);
+    renderTemplateSelect();
+    document.getElementById('deleteTemplateBtn').style.display = 'none';
+    
+    showToast('模板已删除', 'success');
 }
 
 function generateId() {
@@ -817,6 +981,10 @@ function openAddModal() {
     defaultDeadline.setDate(defaultDeadline.getDate() + 7);
     document.getElementById('deadline').value = formatDateInput(defaultDeadline);
 
+    document.getElementById('templateSection').style.display = 'block';
+    renderTemplateSelect();
+    document.getElementById('deleteTemplateBtn').style.display = 'none';
+
     document.getElementById('documentModal').classList.add('show');
 }
 
@@ -846,6 +1014,8 @@ function editDocument(id) {
     document.getElementById('department').value = doc.department;
     document.getElementById('deadline').value = doc.deadline;
     document.getElementById('remark').value = doc.remark || '';
+
+    document.getElementById('templateSection').style.display = 'none';
 
     document.getElementById('documentModal').classList.add('show');
 }
@@ -2028,6 +2198,13 @@ function init() {
         window.searchTimer = setTimeout(searchDocuments, 300);
     });
 
+    document.getElementById('receiveDate').addEventListener('change', function() {
+        const templateSelect = document.getElementById('templateSelect');
+        if (templateSelect && templateSelect.value) {
+            applyTemplate(templateSelect.value);
+        }
+    });
+
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
             closeModal();
@@ -2039,6 +2216,7 @@ function init() {
             closeExportMenu();
             closeAddRecordModal();
             closeCompleteModal();
+            closeSaveTemplateModal();
         }
     });
 

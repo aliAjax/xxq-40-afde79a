@@ -239,6 +239,26 @@
             <form id="documentForm" class="modal-body">
                 <input type="hidden" id="documentId">
 
+                <div class="template-section" id="templateSection" style="display: none;">
+                    <div class="template-section-header">
+                        <span class="template-section-icon">📋</span>
+                        <span class="template-section-title">常用模板</span>
+                    </div>
+                    <div class="template-row">
+                        <div class="template-select-wrapper">
+                            <select id="templateSelect" class="form-input" onchange="applyTemplate(this.value)">
+                                <option value="">选择模板快速填充...</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-default btn-sm" onclick="openSaveTemplateModal()">
+                            <span class="btn-icon">💾</span> 保存为模板
+                        </button>
+                        <button type="button" class="btn btn-danger btn-sm" id="deleteTemplateBtn" onclick="deleteCurrentTemplate()" style="display: none;">
+                            <span class="btn-icon">🗑</span> 删除模板
+                        </button>
+                    </div>
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label" for="fromUnit">来文单位 <span class="required">*</span></label>
@@ -602,6 +622,55 @@
                     <span class="btn-icon">✓</span> 确认恢复
                 </button>
             </div>
+        </div>
+    </div>
+
+    <div class="modal" id="saveTemplateModal">
+        <div class="modal-overlay" onclick="closeSaveTemplateModal()"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>保存为模板</h2>
+                <button class="modal-close" onclick="closeSaveTemplateModal()">✕</button>
+            </div>
+            <form id="saveTemplateForm" class="modal-body" onsubmit="saveTemplate(event)">
+                <div class="form-group">
+                    <label class="form-label" for="templateName">模板名称 <span class="required">*</span></label>
+                    <input type="text" id="templateName" class="form-input" placeholder="请输入模板名称，便于下次快速识别" required>
+                </div>
+                <div class="template-preview">
+                    <div class="template-preview-title">模板包含以下字段：</div>
+                    <div class="template-preview-fields">
+                        <div class="template-preview-field">
+                            <span class="preview-field-label">来文单位：</span>
+                            <span class="preview-field-value" id="previewFromUnit">-</span>
+                        </div>
+                        <div class="template-preview-field">
+                            <span class="preview-field-label">紧急程度：</span>
+                            <span class="preview-field-value" id="previewUrgency">-</span>
+                        </div>
+                        <div class="template-preview-field">
+                            <span class="preview-field-label">承办科室：</span>
+                            <span class="preview-field-value" id="previewDepartment">-</span>
+                        </div>
+                        <div class="template-preview-field">
+                            <span class="preview-field-label">办理期限：</span>
+                            <span class="preview-field-value" id="previewDeadline">-</span>
+                        </div>
+                        <div class="template-preview-field">
+                            <span class="preview-field-label">备注：</span>
+                            <span class="preview-field-value" id="previewRemark">-</span>
+                        </div>
+                    </div>
+                    <div class="template-preview-tip">
+                        <span class="tip-icon">💡</span>
+                        <span class="tip-text">标题、文号、收文日期不会保存到模板中，每次新增需单独填写</span>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeSaveTemplateModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存模板</button>
+                </div>
+            </form>
         </div>
     </div>
 
