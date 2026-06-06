@@ -319,7 +319,7 @@ function renderDocumentList() {
         const statusText = getStatusText(status);
         const daysRemaining = getDaysRemaining(doc.deadline);
         const isSelected = selectedIds.includes(doc.id);
-        
+
         let deadlineClass = '';
         let deadlineText = formatDate(doc.deadline);
         if (!doc.completed) {
@@ -402,7 +402,7 @@ function toggleSelect(id) {
 function toggleSelectAll() {
     const documents = getDocuments();
     const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
-    
+
     if (selectedIds.length === filtered.length && filtered.length > 0) {
         selectedIds = [];
     } else {
@@ -420,22 +420,22 @@ function updateBatchToolbar() {
     const documents = getDocuments();
     const validIds = documents.map(d => d.id);
     selectedIds = selectedIds.filter(id => validIds.includes(id));
-    
+
     const toolbar = document.getElementById('batchToolbar');
     const countEl = document.getElementById('selectedCount');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
     const batchCompleteBtn = document.getElementById('batchCompleteBtn');
-    
+
     if (selectedIds.length > 0) {
         toolbar.style.display = 'flex';
         countEl.textContent = selectedIds.length;
     } else {
         toolbar.style.display = 'none';
     }
-    
+
     const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
     selectAllCheckbox.checked = filtered.length > 0 && selectedIds.length === filtered.length;
-    
+
     const hasUncompleted = selectedIds.some(id => {
         const doc = documents.find(d => d.id === id);
         return doc && !doc.completed;
@@ -458,40 +458,40 @@ function buildBatchPreviewList(containerId) {
 
 function openBatchCompleteModal() {
     if (selectedIds.length === 0) return;
-    
+
     const selectedDocs = getSelectedDocuments();
     const uncompletedDocs = selectedDocs.filter(function(doc) { return !doc.completed; });
-    
+
     if (uncompletedDocs.length === 0) {
         showToast('所选收文均已办结', 'info');
         return;
     }
-    
+
     currentBatchAction = 'complete';
     document.getElementById('batchConfirmTitle').textContent = '批量办结确认';
-    document.getElementById('batchConfirmMessage').innerHTML = 
+    document.getElementById('batchConfirmMessage').innerHTML =
         '确定要将选中的 <span>' + uncompletedDocs.length + '</span> 条收文标记为已办结吗？';
     document.getElementById('batchConfirmBtn').className = 'btn btn-success';
-    
+
     document.getElementById('batchCompleteFields').style.display = 'block';
     document.getElementById('batchCompleteRemark').value = '';
     document.getElementById('batchCompleteHandler').value = '';
-    
+
     buildBatchPreviewList('batchPreviewList');
     document.getElementById('batchConfirmModal').classList.add('show');
 }
 
 function openBatchDeleteModal() {
     if (selectedIds.length === 0) return;
-    
+
     currentBatchAction = 'delete';
     document.getElementById('batchConfirmTitle').textContent = '批量删除确认';
-    document.getElementById('batchConfirmMessage').innerHTML = 
+    document.getElementById('batchConfirmMessage').innerHTML =
         '确定要删除选中的 <span>' + selectedIds.length + '</span> 条收文吗？此操作不可恢复。';
     document.getElementById('batchConfirmBtn').className = 'btn btn-danger';
-    
+
     document.getElementById('batchCompleteFields').style.display = 'none';
-    
+
     buildBatchPreviewList('batchPreviewList');
     document.getElementById('batchConfirmModal').classList.add('show');
 }
@@ -506,15 +506,15 @@ function executeBatchAction(e) {
         e.preventDefault();
     }
     if (!currentBatchAction) return;
-    
+
     const documents = getDocuments();
-    
+
     if (currentBatchAction === 'complete') {
-        const batchRemark = document.getElementById('batchCompleteRemark') ? 
+        const batchRemark = document.getElementById('batchCompleteRemark') ?
             document.getElementById('batchCompleteRemark').value.trim() : '';
         const batchHandler = document.getElementById('batchCompleteHandler') ?
             document.getElementById('batchCompleteHandler').value.trim() : '';
-        
+
         let count = 0;
         const now = new Date().toISOString();
         const updatedDocs = documents.map(function(doc) {
@@ -547,7 +547,7 @@ function executeBatchAction(e) {
         saveDocuments(filtered);
         showToast('成功删除 ' + count + ' 条收文', 'success');
     }
-    
+
     selectedIds = [];
     closeBatchConfirmModal();
     updateStats();
@@ -556,7 +556,7 @@ function executeBatchAction(e) {
 
 function openBatchDepartmentModal() {
     if (selectedIds.length === 0) return;
-    
+
     document.getElementById('batchDeptCount').textContent = selectedIds.length;
     document.getElementById('batchDepartmentSelect').value = '';
     buildBatchPreviewList('batchDeptPreviewList');
@@ -569,13 +569,13 @@ function closeBatchDepartmentModal() {
 
 function executeBatchDepartment(e) {
     e.preventDefault();
-    
+
     const newDepartment = document.getElementById('batchDepartmentSelect').value;
     if (!newDepartment) {
         showToast('请选择承办科室', 'error');
         return;
     }
-    
+
     const documents = getDocuments();
     const count = selectedIds.length;
     const updatedDocs = documents.map(doc => {
@@ -584,10 +584,10 @@ function executeBatchDepartment(e) {
         }
         return doc;
     });
-    
+
     saveDocuments(updatedDocs);
     showToast(`成功修改 ${count} 条收文的承办科室`, 'success');
-    
+
     selectedIds = [];
     closeBatchDepartmentModal();
     updateStats();
@@ -666,11 +666,11 @@ function openAddModal() {
     document.getElementById('documentId').value = '';
     document.getElementById('documentForm').reset();
     document.getElementById('receiveDate').value = formatDateInput(new Date());
-    
+
     const defaultDeadline = new Date();
     defaultDeadline.setDate(defaultDeadline.getDate() + 7);
     document.getElementById('deadline').value = formatDateInput(defaultDeadline);
-    
+
     document.getElementById('documentModal').classList.add('show');
 }
 
@@ -706,7 +706,7 @@ function editDocument(id) {
 
 function saveDocument(e) {
     e.preventDefault();
-    
+
     const id = document.getElementById('documentId').value;
     const docData = {
         fromUnit: document.getElementById('fromUnit').value.trim(),
@@ -719,7 +719,7 @@ function saveDocument(e) {
         remark: document.getElementById('remark').value.trim()
     };
 
-    if (!docData.fromUnit || !docData.docNumber || !docData.title || 
+    if (!docData.fromUnit || !docData.docNumber || !docData.title ||
         !docData.receiveDate || !docData.urgency || !docData.department || !docData.deadline) {
         showToast('请填写所有必填项', 'error');
         return;
@@ -887,12 +887,12 @@ function deleteDocument(id) {
     const documents = getDocuments();
     const filtered = documents.filter(d => d.id !== id);
     saveDocuments(filtered);
-    
+
     const selIndex = selectedIds.indexOf(id);
     if (selIndex > -1) {
         selectedIds.splice(selIndex, 1);
     }
-    
+
     updateStats();
     renderDocumentList();
     showToast('收文已删除', 'success');
@@ -1042,7 +1042,7 @@ function parseCsvLine(line) {
     const result = [];
     let current = '';
     let inQuotes = false;
-    
+
     for (let i = 0; i < line.length; i++) {
         const char = line[i];
         if (char === '"') {
@@ -1876,7 +1876,7 @@ function setupRestoreFileDragDrop() {
 
 function init() {
     document.getElementById('documentForm').addEventListener('submit', saveDocument);
-    
+
     document.getElementById('searchInput').addEventListener('input', function() {
         clearTimeout(window.searchTimer);
         window.searchTimer = setTimeout(searchDocuments, 300);
