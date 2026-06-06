@@ -55,6 +55,9 @@
                 <button class="search-btn" onclick="searchDocuments()">🔍</button>
             </div>
             <div class="toolbar-actions">
+                <button class="btn btn-default" onclick="openImportModal()">
+                    <span class="btn-icon">📥</span> 导入收文
+                </button>
                 <button class="btn btn-primary" onclick="openAddModal()">
                     <span class="btn-icon">➕</span> 新增收文
                 </button>
@@ -311,6 +314,99 @@
                     <button type="submit" class="btn btn-primary">确认修改</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div class="modal" id="importModal">
+        <div class="modal-overlay" onclick="closeImportModal()"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>导入收文</h2>
+                <button class="modal-close" onclick="closeImportModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="import-tabs">
+                    <div class="import-tab active" data-import-tab="paste" onclick="switchImportTab('paste')">
+                        <span class="import-tab-icon">📋</span> 粘贴CSV
+                    </div>
+                    <div class="import-tab" data-import-tab="file" onclick="switchImportTab('file')">
+                        <span class="import-tab-icon">📁</span> 选择文件
+                    </div>
+                </div>
+
+                <div class="import-tab-content" id="importTabPaste">
+                    <div class="form-group">
+                        <label class="form-label">CSV内容 <span class="required">*</span></label>
+                        <textarea id="importCsvText" class="form-input form-textarea import-textarea"
+                            placeholder="请粘贴CSV格式数据，第一行为表头。&#10;字段顺序：来文单位,文号,标题,收文日期,紧急程度,承办科室,办理期限,备注&#10;示例：&#10;市政府办公室,市政发〔2024〕1号,关于做好2024年度工作的通知,2024-01-15,普通,办公室,2024-02-15,请尽快办理"
+                            rows="8"></textarea>
+                    </div>
+                    <button class="btn btn-primary" onclick="parseCsvText()">
+                        <span class="btn-icon">🔍</span> 解析预览
+                    </button>
+                </div>
+
+                <div class="import-tab-content" id="importTabFile" style="display: none;">
+                    <div class="form-group">
+                        <label class="form-label">选择CSV文件 <span class="required">*</span></label>
+                        <div class="file-upload-area" id="fileUploadArea">
+                            <input type="file" id="importFileInput" accept=".csv,text/csv" style="display: none;" onchange="handleFileSelect(event)">
+                            <div class="file-upload-inner" onclick="document.getElementById('importFileInput').click()">
+                                <div class="file-upload-icon">📁</div>
+                                <div class="file-upload-text">点击选择CSV文件，或拖拽文件到此处</div>
+                                <div class="file-upload-hint">支持 .csv 格式文件</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="selectedFileName" class="selected-file-name" style="display: none;"></div>
+                </div>
+
+                <div class="import-preview-section" id="importPreviewSection" style="display: none;">
+                    <div class="import-summary">
+                        <div class="import-summary-item total">
+                            <span class="import-summary-label">总行数</span>
+                            <span class="import-summary-value" id="importTotalCount">0</span>
+                        </div>
+                        <div class="import-summary-item valid">
+                            <span class="import-summary-label">有效行</span>
+                            <span class="import-summary-value" id="importValidCount">0</span>
+                        </div>
+                        <div class="import-summary-item invalid">
+                            <span class="import-summary-label">无效行</span>
+                            <span class="import-summary-value" id="importInvalidCount">0</span>
+                        </div>
+                    </div>
+
+                    <div class="import-error-summary" id="importErrorSummary" style="display: none;"></div>
+
+                    <div class="import-preview-table-wrapper">
+                        <table class="import-preview-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">行号</th>
+                                    <th>来文单位</th>
+                                    <th>文号</th>
+                                    <th>标题</th>
+                                    <th>收文日期</th>
+                                    <th>紧急程度</th>
+                                    <th>承办科室</th>
+                                    <th>办理期限</th>
+                                    <th>备注</th>
+                                    <th style="width: 80px;">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="importPreviewBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" onclick="closeImportModal()">取消</button>
+                <button type="button" class="btn btn-primary" id="importConfirmBtn" onclick="confirmImport()" disabled>
+                    <span class="btn-icon">✓</span> 确认导入
+                </button>
+            </div>
         </div>
     </div>
 

@@ -760,6 +760,365 @@ function closeDetailModal() {
     document.getElementById('detailModal').classList.remove('show');
 }
 
+let importParsedData = [];
+let importValidData = [];
+let currentImportTab = 'paste';
+
+function openImportModal() {
+    importParsedData = [];
+    importValidData = [];
+    document.getElementById('importCsvText').value = '';
+    document.getElementById('importFileInput').value = '';
+    document.getElementById('selectedFileName').style.display = 'none';
+    document.getElementById('importPreviewSection').style.display = 'none';
+    const confirmBtn = document.getElementById('importConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认导入';
+    switchImportTab('paste');
+    document.getElementById('importModal').classList.add('show');
+}
+
+function closeImportModal() {
+    document.getElementById('importModal').classList.remove('show');
+    importParsedData = [];
+    importValidData = [];
+}
+
+function switchImportTab(tab) {
+    currentImportTab = tab;
+    document.querySelectorAll('.import-tab').forEach(t => {
+        t.classList.remove('active');
+    });
+    document.querySelector(`.import-tab[data-import-tab="${tab}"]`).classList.add('active');
+
+    document.getElementById('importTabPaste').style.display = tab === 'paste' ? 'block' : 'none';
+    document.getElementById('importTabFile').style.display = tab === 'file' ? 'block' : 'none';
+
+    document.getElementById('importPreviewSection').style.display = 'none';
+    document.getElementById('importConfirmBtn').disabled = true;
+    importParsedData = [];
+    importValidData = [];
+}
+
+function parseCsvLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    result.push(current.trim());
+    return result;
+}
+
+function parseCsvText() {
+    const csvText = document.getElementById('importCsvText').value.trim();
+    if (!csvText) {
+        showToast('请输入CSV内容', 'error');
+        return;
+    }
+    processCsvData(csvText);
+}
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    processFile(file);
+}
+
+function processFile(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        showToast('请选择CSV格式文件', 'error');
+        return;
+    }
+
+    const fileNameEl = document.getElementById('selectedFileName');
+    fileNameEl.textContent = `已选择文件：${file.name}（${(file.size / 1024).toFixed(2)} KB）`;
+    fileNameEl.style.display = 'block';
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const content = e.target.result;
+        processCsvData(content);
+    };
+    reader.onerror = function() {
+        showToast('文件读取失败', 'error');
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
+function isValidDate(dateStr) {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    return !isNaN(date.getTime()) && dateStr.match(/^\d{4}-\d{2}-\d{2}$/);
+}
+
+function isValidUrgency(urgency) {
+    return ['普通', '加急', '特急'].includes(urgency);
+}
+
+function isValidDepartment(dept) {
+    const validDepts = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
+    return validDepts.includes(dept);
+}
+
+function validateImportRow(row, index, allRows, existingDocs) {
+    const errors = [];
+    const warnings = [];
+
+    if (!row.fromUnit) {
+        errors.push('来文单位不能为空');
+    }
+    if (!row.docNumber) {
+        errors.push('文号不能为空');
+    }
+    if (!row.title) {
+        errors.push('标题不能为空');
+    }
+    if (!row.receiveDate) {
+        errors.push('收文日期不能为空');
+    } else if (!isValidDate(row.receiveDate)) {
+        errors.push('收文日期格式错误');
+    }
+    if (!row.urgency) {
+        errors.push('紧急程度不能为空');
+    } else if (!isValidUrgency(row.urgency)) {
+        errors.push('紧急程度无效（应为：普通/加急/特急）');
+    }
+    if (!row.department) {
+        errors.push('承办科室不能为空');
+    } else if (!isValidDepartment(row.department)) {
+        errors.push('承办科室无效');
+    }
+    if (!row.deadline) {
+        errors.push('办理期限不能为空');
+    } else if (!isValidDate(row.deadline)) {
+        errors.push('办理期限格式错误');
+    }
+
+    if (row.docNumber) {
+        const dupInImport = allRows.filter((r, i) => 
+            i !== index && r.docNumber && r.docNumber === row.docNumber
+        );
+        if (dupInImport.length > 0) {
+            warnings.push('导入数据内文号重复');
+        }
+
+        const dupInExisting = existingDocs.filter(d => d.docNumber === row.docNumber);
+        if (dupInExisting.length > 0) {
+            warnings.push('与现有数据文号重复');
+        }
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors,
+        warnings
+    };
+}
+
+function processCsvData(csvText) {
+    const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
+    
+    if (lines.length < 2) {
+        showToast('CSV数据至少需要包含表头和一行数据', 'error');
+        return;
+    }
+
+    const headerLine = lines[0];
+    const headers = parseCsvLine(headerLine);
+    
+    const dataLines = lines.slice(1);
+    const parsedRows = [];
+
+    for (let i = 0; i < dataLines.length; i++) {
+        const values = parseCsvLine(dataLines[i]);
+        const row = {
+            fromUnit: values[0] || '',
+            docNumber: values[1] || '',
+            title: values[2] || '',
+            receiveDate: values[3] || '',
+            urgency: values[4] || '',
+            department: values[5] || '',
+            deadline: values[6] || '',
+            remark: values[7] || ''
+        };
+        parsedRows.push(row);
+    }
+
+    const existingDocs = getDocuments();
+    const validatedRows = parsedRows.map((row, index) => {
+        const validation = validateImportRow(row, index, parsedRows, existingDocs);
+        return {
+            rowIndex: index + 2,
+            data: row,
+            ...validation
+        };
+    });
+
+    importParsedData = validatedRows;
+    importValidData = validatedRows.filter(r => r.valid);
+
+    renderImportPreview();
+}
+
+function renderImportPreview() {
+    const previewSection = document.getElementById('importPreviewSection');
+    const tbody = document.getElementById('importPreviewBody');
+    const totalCount = importParsedData.length;
+    const validCount = importValidData.length;
+    const invalidCount = totalCount - validCount;
+
+    document.getElementById('importTotalCount').textContent = totalCount;
+    document.getElementById('importValidCount').textContent = validCount;
+    document.getElementById('importInvalidCount').textContent = invalidCount;
+
+    const errorSummaryEl = document.getElementById('importErrorSummary');
+    if (invalidCount > 0) {
+        const errorTypes = {};
+        importParsedData.forEach(item => {
+            item.errors.forEach(err => {
+                errorTypes[err] = (errorTypes[err] || 0) + 1;
+            });
+            item.warnings.forEach(warn => {
+                errorTypes[warn] = (errorTypes[warn] || 0) + 1;
+            });
+        });
+        const errorHtml = Object.entries(errorTypes).map(([msg, count]) => 
+            `<span class="import-error-tag">${msg} (${count}条)</span>`
+        ).join('');
+        errorSummaryEl.innerHTML = `<div class="import-error-title">问题汇总：</div>${errorHtml}`;
+        errorSummaryEl.style.display = 'block';
+    } else {
+        errorSummaryEl.style.display = 'none';
+    }
+
+    tbody.innerHTML = importParsedData.map(item => {
+        const rowClass = item.valid ? 'row-valid' : 'row-invalid';
+        const statusText = item.valid ? '有效' : '无效';
+        const statusClass = item.valid ? 'status-valid' : 'status-invalid';
+        
+        const hasWarning = item.warnings.length > 0;
+        const rowFinalClass = hasWarning ? 'row-warning' : rowClass;
+        
+        let errorTooltip = '';
+        if (item.errors.length > 0 || item.warnings.length > 0) {
+            const allIssues = [...item.errors, ...item.warnings];
+            errorTooltip = allIssues.join('；');
+        }
+
+        return `
+            <tr class="${rowFinalClass}" title="${escapeHtml(errorTooltip)}">
+                <td>${item.rowIndex}</td>
+                <td class="${!item.data.fromUnit ? 'cell-error' : ''}">${escapeHtml(item.data.fromUnit) || '-'}</td>
+                <td class="${!item.data.docNumber ? 'cell-error' : ''}">${escapeHtml(item.data.docNumber) || '-'}</td>
+                <td class="${!item.data.title ? 'cell-error' : ''}">${escapeHtml(item.data.title) || '-'}</td>
+                <td class="${!item.data.receiveDate || !isValidDate(item.data.receiveDate) ? 'cell-error' : ''}">${escapeHtml(item.data.receiveDate) || '-'}</td>
+                <td class="${!item.data.urgency || !isValidUrgency(item.data.urgency) ? 'cell-error' : ''}">${escapeHtml(item.data.urgency) || '-'}</td>
+                <td class="${!item.data.department || !isValidDepartment(item.data.department) ? 'cell-error' : ''}">${escapeHtml(item.data.department) || '-'}</td>
+                <td class="${!item.data.deadline || !isValidDate(item.data.deadline) ? 'cell-error' : ''}">${escapeHtml(item.data.deadline) || '-'}</td>
+                <td>${escapeHtml(item.data.remark) || '-'}</td>
+                <td><span class="import-row-status ${statusClass}">${statusText}</span></td>
+            </tr>
+        `;
+    }).join('');
+
+    previewSection.style.display = 'block';
+    
+    const confirmBtn = document.getElementById('importConfirmBtn');
+    confirmBtn.disabled = validCount === 0;
+    if (validCount > 0) {
+        confirmBtn.innerHTML = `<span class="btn-icon">✓</span> 确认导入 (${validCount}条)`;
+    } else {
+        confirmBtn.innerHTML = `<span class="btn-icon">✓</span> 确认导入`;
+    }
+}
+
+function confirmImport() {
+    if (importValidData.length === 0) {
+        showToast('没有可导入的有效数据', 'error');
+        return;
+    }
+
+    const documents = getDocuments();
+    const newDocs = importValidData.map(item => ({
+        id: generateId(),
+        fromUnit: item.data.fromUnit,
+        docNumber: item.data.docNumber,
+        title: item.data.title,
+        receiveDate: item.data.receiveDate,
+        urgency: item.data.urgency,
+        department: item.data.department,
+        deadline: item.data.deadline,
+        remark: item.data.remark || '',
+        completed: false,
+        completedAt: null,
+        createdAt: new Date().toISOString()
+    }));
+
+    const updatedDocs = [...newDocs, ...documents];
+    saveDocuments(updatedDocs);
+
+    const validCount = importValidData.length;
+    const totalCount = importParsedData.length;
+    const skippedCount = totalCount - validCount;
+
+    let msg = `成功导入 ${validCount} 条收文`;
+    if (skippedCount > 0) {
+        msg += `，跳过 ${skippedCount} 条无效数据`;
+    }
+
+    showToast(msg, 'success');
+    closeImportModal();
+    updateStats();
+    renderDocumentList();
+}
+
+function setupFileDragDrop() {
+    const dropArea = document.getElementById('fileUploadArea');
+    if (!dropArea) return;
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropArea.addEventListener(eventName, function() {
+            dropArea.classList.add('drag-over');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, function() {
+            dropArea.classList.remove('drag-over');
+        });
+    });
+
+    dropArea.addEventListener('drop', function(e) {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            processFile(files[0]);
+        }
+    });
+}
+
 function init() {
     document.getElementById('documentForm').addEventListener('submit', saveDocument);
     
@@ -774,9 +1133,11 @@ function init() {
             closeDetailModal();
             closeBatchConfirmModal();
             closeBatchDepartmentModal();
+            closeImportModal();
         }
     });
 
+    setupFileDragDrop();
     updateFilterActiveBadge();
     updateStats();
     renderDocumentList();
