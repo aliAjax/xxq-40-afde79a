@@ -55,8 +55,29 @@
                 <button class="search-btn" onclick="searchDocuments()">🔍</button>
             </div>
             <div class="toolbar-actions">
-                <button class="btn btn-default" onclick="openImportModal()">
-                    <span class="btn-icon">📥</span> 导入收文
+                <div class="export-dropdown">
+                    <button class="btn btn-default" onclick="toggleExportMenu()">
+                        <span class="btn-icon">📤</span> 导出备份 <span class="dropdown-arrow">▼</span>
+                    </button>
+                    <div class="export-menu" id="exportMenu">
+                        <div class="export-menu-item" onclick="exportFilteredCsv()">
+                            <span class="export-menu-icon">📊</span>
+                            <div class="export-menu-text">
+                                <div class="export-menu-title">导出当前筛选结果 (CSV)</div>
+                                <div class="export-menu-desc">导出当前筛选条件下的收文数据</div>
+                            </div>
+                        </div>
+                        <div class="export-menu-item" onclick="exportFullJson()">
+                            <span class="export-menu-icon">�</span>
+                            <div class="export-menu-text">
+                                <div class="export-menu-title">导出完整备份 (JSON)</div>
+                                <div class="export-menu-desc">导出全部收文数据用于备份留档</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-default" onclick="openRestoreModal()">
+                    <span class="btn-icon">📥</span> 恢复备份
                 </button>
                 <button class="btn btn-primary" onclick="openAddModal()">
                     <span class="btn-icon">➕</span> 新增收文
@@ -405,6 +426,89 @@
                 <button type="button" class="btn btn-default" onclick="closeImportModal()">取消</button>
                 <button type="button" class="btn btn-primary" id="importConfirmBtn" onclick="confirmImport()" disabled>
                     <span class="btn-icon">✓</span> 确认导入
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="restoreModal">
+        <div class="modal-overlay" onclick="closeRestoreModal()"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>恢复备份</h2>
+                <button class="modal-close" onclick="closeRestoreModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">选择备份文件 <span class="required">*</span></label>
+                    <div class="file-upload-area" id="restoreFileUploadArea">
+                        <input type="file" id="restoreFileInput" accept=".json,application/json" style="display: none;" onchange="handleRestoreFileSelect(event)">
+                        <div class="file-upload-inner" onclick="document.getElementById('restoreFileInput').click()">
+                            <div class="file-upload-icon">📁</div>
+                            <div class="file-upload-text">点击选择JSON备份文件，或拖拽文件到此处</div>
+                            <div class="file-upload-hint">支持 .json 格式备份文件</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="restoreFileName" class="selected-file-name" style="display: none;"></div>
+
+                <div class="restore-preview-section" id="restorePreviewSection" style="display: none;">
+                    <div class="restore-summary">
+                        <div class="restore-summary-item total">
+                            <span class="restore-summary-label">备份总数</span>
+                            <span class="restore-summary-value" id="restoreTotalCount">0</span>
+                        </div>
+                        <div class="restore-summary-item add">
+                            <span class="restore-summary-label">将新增</span>
+                            <span class="restore-summary-value" id="restoreAddCount">0</span>
+                        </div>
+                        <div class="restore-summary-item overwrite">
+                            <span class="restore-summary-label">将覆盖</span>
+                            <span class="restore-summary-value" id="restoreOverwriteCount">0</span>
+                        </div>
+                        <div class="restore-summary-item skip">
+                            <span class="restore-summary-label">将跳过</span>
+                            <span class="restore-summary-value" id="restoreSkipCount">0</span>
+                        </div>
+                    </div>
+
+                    <div class="restore-duplicate-warning" id="restoreDuplicateWarning" style="display: none;">
+                        <div class="restore-warning-icon">⚠️</div>
+                        <div class="restore-warning-text">
+                            <div class="restore-warning-title">检测到重复数据</div>
+                            <div class="restore-warning-desc">存在ID或文号重复的记录，您可以选择是否覆盖。默认情况下重复记录将被跳过。</div>
+                        </div>
+                    </div>
+
+                    <div class="restore-options">
+                        <label class="restore-option-label">
+                            <input type="checkbox" id="restoreOverwriteCheckbox" onchange="updateRestorePreview()">
+                            <span class="restore-option-text">覆盖重复的记录（按ID和文号匹配）</span>
+                        </label>
+                    </div>
+
+                    <div class="restore-preview-table-wrapper">
+                        <table class="restore-preview-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">序号</th>
+                                    <th>标题</th>
+                                    <th>文号</th>
+                                    <th>来文单位</th>
+                                    <th>承办科室</th>
+                                    <th style="width: 80px;">处理方式</th>
+                                </tr>
+                            </thead>
+                            <tbody id="restorePreviewBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" onclick="closeRestoreModal()">取消</button>
+                <button type="button" class="btn btn-primary" id="restoreConfirmBtn" onclick="confirmRestore()" disabled>
+                    <span class="btn-icon">✓</span> 确认恢复
                 </button>
             </div>
         </div>

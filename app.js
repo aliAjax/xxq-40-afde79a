@@ -1114,6 +1114,433 @@ function setupFileDragDrop() {
     });
 }
 
+const FIELD_NAME_MAP = {
+    id: 'ID',
+    fromUnit: '来文单位',
+    docNumber: '文号',
+    title: '标题',
+    receiveDate: '收文日期',
+    urgency: '紧急程度',
+    department: '承办科室',
+    deadline: '办理期限',
+    remark: '备注',
+    completed: '是否办结',
+    completedAt: '办结时间',
+    createdAt: '创建时间'
+};
+
+const CSV_EXPORT_FIELDS = [
+    'fromUnit', 'docNumber', 'title', 'receiveDate', 'urgency',
+    'department', 'deadline', 'remark', 'completed', 'completedAt', 'createdAt'
+];
+
+function getExportFileName(prefix, extension) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    return `收文_${prefix}_${year}${month}${day}_${hours}${minutes}.${extension}`;
+}
+
+function downloadFile(content, filename, mimeType) {
+    const blob = new Blob(['\ufeff' + content], { type: mimeType + ';charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+function toggleExportMenu() {
+    const menu = document.getElementById('exportMenu');
+    menu.classList.toggle('show');
+}
+
+function closeExportMenu() {
+    const menu = document.getElementById('exportMenu');
+    if (menu) {
+        menu.classList.remove('show');
+    }
+}
+
+function exportFilteredCsv() {
+    closeExportMenu();
+    const documents = getDocuments();
+    const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
+
+    if (filtered.length === 0) {
+        showToast('当前筛选结果为空，无法导出', 'error');
+        return;
+    }
+
+    const headerRow = CSV_EXPORT_FIELDS.map(function(field) {
+        return FIELD_NAME_MAP[field] || field;
+    }).join(',');
+
+    const dataRows = filtered.map(function(doc) {
+        return CSV_EXPORT_FIELDS.map(function(field) {
+            let value = doc[field];
+            if (field === 'completed') {
+                value = value ? '是' : '否';
+            }
+            if (value === undefined || value === null) {
+                value = '';
+            }
+            value = String(value);
+            if (value.indexOf(',') !== -1 || value.indexOf('"') !== -1 || value.indexOf('\n') !== -1) {
+                value = '"' + value.replace(/"/g, '""') + '"';
+            }
+            return value;
+        }).join(',');
+    }).join('\n');
+
+    const csvContent = headerRow + '\n' + dataRows;
+    const filename = getExportFileName('筛选导出', 'csv');
+    downloadFile(csvContent, filename, 'text/csv');
+    showToast('成功导出 ' + filtered.length + ' 条收文数据', 'success');
+}
+
+function exportFullJson() {
+    closeExportMenu();
+    const documents = getDocuments();
+
+    if (documents.length === 0) {
+        showToast('当前没有数据可导出', 'error');
+        return;
+    }
+
+    const exportData = {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        totalCount: documents.length,
+        data: documents
+    };
+
+    const jsonContent = JSON.stringify(exportData, null, 2);
+    const filename = getExportFileName('完整备份', 'json');
+    downloadFile(jsonContent, filename, 'application/json');
+    showToast('成功导出 ' + documents.length + ' 条收文备份', 'success');
+}
+
+let restoreData = [];
+let restoreAnalysis = null;
+
+function openRestoreModal() {
+    restoreData = [];
+    restoreAnalysis = null;
+    document.getElementById('restoreFileInput').value = '';
+    document.getElementById('restoreFileName').style.display = 'none';
+    document.getElementById('restorePreviewSection').style.display = 'none';
+    document.getElementById('restoreOverwriteCheckbox').checked = false;
+    document.getElementById('restoreConfirmBtn').disabled = true;
+    document.getElementById('restoreModal').classList.add('show');
+}
+
+function closeRestoreModal() {
+    document.getElementById('restoreModal').classList.remove('show');
+    restoreData = [];
+    restoreAnalysis = null;
+}
+
+function handleRestoreFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    processRestoreFile(file);
+}
+
+function processRestoreFile(file) {
+    if (!file.name.toLowerCase().endsWith('.json')) {
+        showToast('请选择JSON格式备份文件', 'error');
+        return;
+    }
+
+    const fileNameEl = document.getElementById('restoreFileName');
+    const fileSizeKb = (file.size / 1024).toFixed(2);
+    fileNameEl.textContent = '已选择文件：' + file.name + '（' + fileSizeKb + ' KB）';
+    fileNameEl.style.display = 'block';
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const content = e.target.result;
+            const parsed = JSON.parse(content);
+
+            let docs = [];
+            if (Array.isArray(parsed)) {
+                docs = parsed;
+            } else if (parsed.data && Array.isArray(parsed.data)) {
+                docs = parsed.data;
+            } else {
+                throw new Error('无效的备份文件格式');
+            }
+
+            if (docs.length === 0) {
+                showToast('备份文件中没有数据', 'error');
+                return;
+            }
+
+            const validDocs = docs.filter(function(doc) {
+                return doc.fromUnit && doc.docNumber && doc.title &&
+                    doc.receiveDate && doc.urgency && doc.department && doc.deadline;
+            });
+
+            if (validDocs.length === 0) {
+                showToast('备份文件中没有有效的收文数据', 'error');
+                return;
+            }
+
+            restoreData = validDocs;
+            analyzeRestoreData();
+            renderRestorePreview();
+
+        } catch (err) {
+            showToast('文件解析失败：' + err.message, 'error');
+        }
+    };
+    reader.onerror = function() {
+        showToast('文件读取失败', 'error');
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
+function analyzeRestoreData() {
+    const existingDocs = getDocuments();
+    const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
+
+    const existingById = {};
+    const existingByDocNumber = {};
+    existingDocs.forEach(function(doc) {
+        if (doc.id) {
+            existingById[doc.id] = doc;
+        }
+        if (doc.docNumber) {
+            existingByDocNumber[doc.docNumber] = doc;
+        }
+    });
+
+    const addItems = [];
+    const overwriteItems = [];
+    const skipItems = [];
+
+    restoreData.forEach(function(item) {
+        let matchDoc = null;
+        let matchType = null;
+
+        if (item.id && existingById[item.id]) {
+            matchDoc = existingById[item.id];
+            matchType = 'id';
+        } else if (item.docNumber && existingByDocNumber[item.docNumber]) {
+            matchDoc = existingByDocNumber[item.docNumber];
+            matchType = 'docNumber';
+        }
+
+        if (!matchDoc) {
+            addItems.push({ data: item, action: 'add' });
+        } else if (overwrite) {
+            overwriteItems.push({ data: item, action: 'overwrite', matched: matchDoc, matchType: matchType });
+        } else {
+            skipItems.push({ data: item, action: 'skip', matched: matchDoc, matchType: matchType });
+        }
+    });
+
+    restoreAnalysis = {
+        total: restoreData.length,
+        add: addItems.length,
+        overwrite: overwriteItems.length,
+        skip: skipItems.length,
+        hasDuplicate: overwriteItems.length > 0 || skipItems.length > 0,
+        items: addItems.concat(overwriteItems).concat(skipItems)
+    };
+}
+
+function updateRestorePreview() {
+    if (restoreData.length === 0) return;
+    analyzeRestoreData();
+    renderRestorePreview();
+}
+
+function renderRestorePreview() {
+    if (!restoreAnalysis) return;
+
+    const previewSection = document.getElementById('restorePreviewSection');
+    const tbody = document.getElementById('restorePreviewBody');
+
+    document.getElementById('restoreTotalCount').textContent = restoreAnalysis.total;
+    document.getElementById('restoreAddCount').textContent = restoreAnalysis.add;
+    document.getElementById('restoreOverwriteCount').textContent = restoreAnalysis.overwrite;
+    document.getElementById('restoreSkipCount').textContent = restoreAnalysis.skip;
+
+    const warningEl = document.getElementById('restoreDuplicateWarning');
+    if (restoreAnalysis.hasDuplicate) {
+        warningEl.style.display = 'flex';
+    } else {
+        warningEl.style.display = 'none';
+    }
+
+    tbody.innerHTML = restoreAnalysis.items.map(function(item, index) {
+        const rowClass = 'row-' + item.action;
+        const statusMap = {
+            'add': { text: '新增', class: 'status-add' },
+            'overwrite': { text: '覆盖', class: 'status-overwrite' },
+            'skip': { text: '跳过', class: 'status-skip' }
+        };
+        const status = statusMap[item.action];
+
+        return '<tr class="' + rowClass + '">' +
+            '<td>' + (index + 1) + '</td>' +
+            '<td>' + escapeHtml(item.data.title || '-') + '</td>' +
+            '<td>' + escapeHtml(item.data.docNumber || '-') + '</td>' +
+            '<td>' + escapeHtml(item.data.fromUnit || '-') + '</td>' +
+            '<td>' + escapeHtml(item.data.department || '-') + '</td>' +
+            '<td><span class="restore-row-status ' + status.class + '">' + status.text + '</span></td>' +
+            '</tr>';
+    }).join('');
+
+    previewSection.style.display = 'block';
+
+    const confirmBtn = document.getElementById('restoreConfirmBtn');
+    const canRestore = restoreAnalysis.add > 0 || restoreAnalysis.overwrite > 0;
+    confirmBtn.disabled = !canRestore;
+    if (canRestore) {
+        let btnText = '确认恢复';
+        if (restoreAnalysis.add > 0) {
+            btnText += ' (新增' + restoreAnalysis.add + '条';
+        }
+        if (restoreAnalysis.overwrite > 0) {
+            btnText += (restoreAnalysis.add > 0 ? '，' : ' (') + '覆盖' + restoreAnalysis.overwrite + '条';
+        }
+        btnText += ')';
+        confirmBtn.innerHTML = '<span class="btn-icon">✓</span> ' + btnText;
+    } else {
+        confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认恢复';
+    }
+}
+
+function confirmRestore() {
+    if (!restoreAnalysis) return;
+
+    const documents = getDocuments();
+    const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
+
+    const existingById = {};
+    const existingByDocNumber = {};
+    documents.forEach(function(doc) {
+        if (doc.id) {
+            existingById[doc.id] = doc;
+        }
+        if (doc.docNumber) {
+            existingByDocNumber[doc.docNumber] = doc;
+        }
+    });
+
+    let addCount = 0;
+    let overwriteCount = 0;
+    let skipCount = 0;
+
+    const finalDocs = documents.slice();
+
+    restoreData.forEach(function(item) {
+        let matchDoc = null;
+
+        if (item.id && existingById[item.id]) {
+            matchDoc = existingById[item.id];
+        } else if (item.docNumber && existingByDocNumber[item.docNumber]) {
+            matchDoc = existingByDocNumber[item.docNumber];
+        }
+
+        if (!matchDoc) {
+            const newDoc = {
+                id: item.id || generateId(),
+                fromUnit: item.fromUnit,
+                docNumber: item.docNumber,
+                title: item.title,
+                receiveDate: item.receiveDate,
+                urgency: item.urgency,
+                department: item.department,
+                deadline: item.deadline,
+                remark: item.remark || '',
+                completed: item.completed || false,
+                completedAt: item.completedAt || null,
+                createdAt: item.createdAt || new Date().toISOString()
+            };
+            finalDocs.push(newDoc);
+            addCount++;
+        } else if (overwrite) {
+            const index = finalDocs.findIndex(function(d) {
+                return d.id === matchDoc.id;
+            });
+            if (index !== -1) {
+                finalDocs[index] = {
+                    ...matchDoc,
+                    ...item,
+                    id: matchDoc.id
+                };
+                overwriteCount++;
+            }
+        } else {
+            skipCount++;
+        }
+    });
+
+    saveDocuments(finalDocs);
+
+    let msg = '';
+    if (addCount > 0) {
+        msg += '新增 ' + addCount + ' 条';
+    }
+    if (overwriteCount > 0) {
+        msg += (msg ? '，' : '') + '覆盖 ' + overwriteCount + ' 条';
+    }
+    if (skipCount > 0) {
+        msg += (msg ? '，' : '') + '跳过 ' + skipCount + ' 条';
+    }
+    msg += '收文数据';
+
+    showToast(msg, 'success');
+    closeRestoreModal();
+    updateStats();
+    renderDocumentList();
+}
+
+function setupRestoreFileDragDrop() {
+    const dropArea = document.getElementById('restoreFileUploadArea');
+    if (!dropArea) return;
+
+    const preventEvents = ['dragenter', 'dragover', 'dragleave', 'drop'];
+    for (let i = 0; i < preventEvents.length; i++) {
+        dropArea.addEventListener(preventEvents[i], function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    }
+
+    const addDragEvents = ['dragenter', 'dragover'];
+    for (let i = 0; i < addDragEvents.length; i++) {
+        dropArea.addEventListener(addDragEvents[i], function() {
+            dropArea.classList.add('drag-over');
+        });
+    }
+
+    const removeDragEvents = ['dragleave', 'drop'];
+    for (let i = 0; i < removeDragEvents.length; i++) {
+        dropArea.addEventListener(removeDragEvents[i], function() {
+            dropArea.classList.remove('drag-over');
+        });
+    }
+
+    dropArea.addEventListener('drop', function(e) {
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            processRestoreFile(files[0]);
+        }
+    });
+}
+
 function init() {
     document.getElementById('documentForm').addEventListener('submit', saveDocument);
     
@@ -1129,10 +1556,20 @@ function init() {
             closeBatchConfirmModal();
             closeBatchDepartmentModal();
             closeImportModal();
+            closeRestoreModal();
+            closeExportMenu();
+        }
+    });
+
+    document.addEventListener('click', function(e) {
+        const exportDropdown = document.querySelector('.export-dropdown');
+        if (exportDropdown && !exportDropdown.contains(e.target)) {
+            closeExportMenu();
         }
     });
 
     setupFileDragDrop();
+    setupRestoreFileDragDrop();
     updateFilterActiveBadge();
     updateStats();
     renderDocumentList();
