@@ -1,4 +1,6 @@
 const STORAGE_KEY = 'document_registry_data';
+const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
+let currentView = 'list';
 let currentTab = 'pending';
 let searchKeyword = '';
 let advancedFilter = {
@@ -209,6 +211,150 @@ function updateStats() {
     document.getElementById('tabPendingBadge').textContent = pendingCount;
     document.getElementById('tabUrgentBadge').textContent = urgentCount;
     document.getElementById('tabDoneBadge').textContent = doneCount;
+
+    if (currentView === 'board') {
+        renderDepartmentBoard();
+    }
+}
+
+function getDepartmentStats() {
+    const documents = getDocuments();
+    const stats = {};
+
+    DEPARTMENT_LIST.forEach(dept => {
+        stats[dept] = {
+            pending: 0,
+            urgent: 0,
+            overdue: 0,
+            done: 0,
+            total: 0
+        };
+    });
+
+    documents.forEach(doc => {
+        const dept = doc.department;
+        if (!stats[dept]) {
+            stats[dept] = {
+                pending: 0,
+                urgent: 0,
+                overdue: 0,
+                done: 0,
+                total: 0
+            };
+        }
+        const status = getDocumentStatus(doc);
+        stats[dept].total++;
+        if (status === 'done') {
+            stats[dept].done++;
+        } else if (status === 'overdue') {
+            stats[dept].overdue++;
+            stats[dept].pending++;
+        } else if (status === 'urgent') {
+            stats[dept].urgent++;
+            stats[dept].pending++;
+        } else {
+            stats[dept].pending++;
+        }
+    });
+
+    return stats;
+}
+
+function renderDepartmentBoard() {
+    const stats = getDepartmentStats();
+    const boardCards = document.getElementById('boardCards');
+
+    const departments = DEPARTMENT_LIST.filter(dept => stats[dept] && stats[dept].total > 0);
+    const emptyDepts = DEPARTMENT_LIST.filter(dept => !stats[dept] || stats[dept].total === 0);
+    const allDepts = departments.concat(emptyDepts);
+
+    if (allDepts.length === 0) {
+        boardCards.innerHTML = `
+            <div class="board-empty">
+                <div class="board-empty-icon">📊</div>
+                <p class="board-empty-text">暂无科室数据</p>
+            </div>
+        `;
+        return;
+    }
+
+    boardCards.innerHTML = allDepts.map(dept => {
+        const s = stats[dept] || { pending: 0, urgent: 0, overdue: 0, done: 0, total: 0 };
+        const hasData = s.total > 0;
+        return `
+            <div class="board-card ${hasData ? '' : 'board-card-empty'}" onclick="${hasData ? `viewDepartmentDocuments('${dept}')` : ''}">
+                <div class="board-card-header">
+                    <div class="board-dept-name">${escapeHtml(dept)}</div>
+                    <div class="board-dept-total">
+                        <span class="board-total-number">${s.total}</span>
+                        <span class="board-total-label">件</span>
+                    </div>
+                </div>
+                <div class="board-card-stats">
+                    <div class="board-stat-item pending">
+                        <div class="board-stat-number">${s.pending}</div>
+                        <div class="board-stat-label">待办理</div>
+                    </div>
+                    <div class="board-stat-item urgent">
+                        <div class="board-stat-number">${s.urgent}</div>
+                        <div class="board-stat-label">即将到期</div>
+                    </div>
+                    <div class="board-stat-item overdue">
+                        <div class="board-stat-number">${s.overdue}</div>
+                        <div class="board-stat-label">已逾期</div>
+                    </div>
+                    <div class="board-stat-item done">
+                        <div class="board-stat-number">${s.done}</div>
+                        <div class="board-stat-label">已办结</div>
+                    </div>
+                </div>
+                <div class="board-card-progress">
+                    <div class="board-progress-bar">
+                        <div class="board-progress-fill done" style="width: ${s.total > 0 ? (s.done / s.total * 100) : 0}%"></div>
+                    </div>
+                    <div class="board-progress-text">办结率 ${s.total > 0 ? Math.round(s.done / s.total * 100) : 0}%</div>
+                </div>
+                ${hasData ? '<div class="board-card-action">查看详情 →</div>' : '<div class="board-card-empty-tip">暂无收文</div>'}
+            </div>
+        `;
+    }).join('');
+}
+
+function switchView(view) {
+    currentView = view;
+
+    document.querySelectorAll('.view-tab').forEach(t => {
+        t.classList.remove('active');
+    });
+    document.querySelector(`.view-tab[data-view="${view}"]`).classList.add('active');
+
+    const listTabs = document.getElementById('listTabs');
+    const batchToolbar = document.getElementById('batchToolbar');
+    const departmentBoard = document.getElementById('departmentBoard');
+    const content = document.querySelector('.content');
+
+    if (view === 'board') {
+        listTabs.style.display = 'none';
+        batchToolbar.style.display = 'none';
+        content.style.display = 'none';
+        departmentBoard.style.display = 'block';
+        renderDepartmentBoard();
+    } else {
+        listTabs.style.display = 'flex';
+        content.style.display = 'block';
+        departmentBoard.style.display = 'none';
+        updateBatchToolbar();
+        renderDocumentList();
+    }
+}
+
+function viewDepartmentDocuments(dept) {
+    advancedFilter.department = dept;
+    document.getElementById('filterDepartment').value = dept;
+    updateFilterActiveBadge();
+    switchView('list');
+    switchTab('all');
+    selectedIds = [];
 }
 
 function filterDocuments(documents, tab, keyword, filter) {

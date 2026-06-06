@@ -151,7 +151,16 @@
             </div>
         </div>
 
-        <div class="tabs">
+        <div class="view-switcher">
+            <div class="view-tab active" data-view="list" onclick="switchView('list')">
+                <span class="view-tab-icon">📋</span> 列表视图
+            </div>
+            <div class="view-tab" data-view="board" onclick="switchView('board')">
+                <span class="view-tab-icon">📊</span> 科室看板
+            </div>
+        </div>
+
+        <div class="tabs" id="listTabs">
             <div class="tab active" data-tab="pending" onclick="switchTab('pending')">
                 待办理 <span class="tab-badge" id="tabPendingBadge">0</span>
             </div>
@@ -163,6 +172,24 @@
             </div>
             <div class="tab" data-tab="all" onclick="switchTab('all')">
                 全部
+            </div>
+        </div>
+
+        <div class="department-board" id="departmentBoard" style="display: none;">
+            <div class="board-header">
+                <div class="board-title">
+                    <span class="board-title-icon">🏢</span>
+                    科室工作量统计
+                </div>
+                <div class="board-subtitle">点击科室卡片可查看该科室的全部收文</div>
+            </div>
+            <div class="board-legend">
+                <div class="legend-item"><span class="legend-dot pending"></span>待办理</div>
+                <div class="legend-item"><span class="legend-dot urgent"></span>即将到期</div>
+                <div class="legend-item"><span class="legend-dot overdue"></span>已逾期</div>
+                <div class="legend-item"><span class="legend-dot done"></span>已办结</div>
+            </div>
+            <div class="board-cards" id="boardCards">
             </div>
         </div>
 
