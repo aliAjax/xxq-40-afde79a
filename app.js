@@ -216,6 +216,7 @@ function renderDocumentList() {
                 ${showAddButton ? '<button class="btn btn-primary" onclick="openAddModal()">新增收文</button>' : ''}
             </div>
         `;
+        updateBatchToolbar();
         return;
     }
 
@@ -321,6 +322,10 @@ function clearSelection() {
 }
 
 function updateBatchToolbar() {
+    const documents = getDocuments();
+    const validIds = documents.map(d => d.id);
+    selectedIds = selectedIds.filter(id => validIds.includes(id));
+    
     const toolbar = document.getElementById('batchToolbar');
     const countEl = document.getElementById('selectedCount');
     const selectAllCheckbox = document.getElementById('selectAllCheckbox');
@@ -333,13 +338,11 @@ function updateBatchToolbar() {
         toolbar.style.display = 'none';
     }
     
-    const documents = getDocuments();
     const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
     selectAllCheckbox.checked = filtered.length > 0 && selectedIds.length === filtered.length;
     
-    const documentsData = getDocuments();
     const hasUncompleted = selectedIds.some(id => {
-        const doc = documentsData.find(d => d.id === id);
+        const doc = documents.find(d => d.id === id);
         return doc && !doc.completed;
     });
     batchCompleteBtn.style.display = hasUncompleted ? 'inline-flex' : 'none';
