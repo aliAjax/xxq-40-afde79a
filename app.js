@@ -1294,7 +1294,24 @@ function processRestoreFile(file) {
                 return;
             }
 
-            restoreData = validDocs;
+            const normalizedDocs = validDocs.map(function(doc) {
+                return {
+                    id: doc.id || null,
+                    fromUnit: doc.fromUnit,
+                    docNumber: doc.docNumber,
+                    title: doc.title,
+                    receiveDate: doc.receiveDate,
+                    urgency: doc.urgency,
+                    department: doc.department,
+                    deadline: doc.deadline,
+                    remark: doc.remark || '',
+                    completed: doc.completed || false,
+                    completedAt: doc.completedAt || null,
+                    createdAt: doc.createdAt || null
+                };
+            });
+
+            restoreData = normalizedDocs;
             analyzeRestoreData();
             renderRestorePreview();
 
@@ -1323,6 +1340,8 @@ function analyzeRestoreData() {
         }
     });
 
+    const seenIdsInBackup = {};
+    const seenDocNumbersInBackup = {};
     const addItems = [];
     const overwriteItems = [];
     const skipItems = [];
@@ -1330,6 +1349,32 @@ function analyzeRestoreData() {
     restoreData.forEach(function(item) {
         let matchDoc = null;
         let matchType = null;
+        let isInternalDuplicate = false;
+
+        if (item.id && seenIdsInBackup[item.id]) {
+            isInternalDuplicate = true;
+        }
+        if (!isInternalDuplicate && item.docNumber && seenDocNumbersInBackup[item.docNumber]) {
+            isInternalDuplicate = true;
+        }
+
+        if (item.id) {
+            seenIdsInBackup[item.id] = true;
+        }
+        if (item.docNumber) {
+            seenDocNumbersInBackup[item.docNumber] = true;
+        }
+
+        if (isInternalDuplicate) {
+            skipItems.push({
+                data: item,
+                action: 'skip',
+                matched: null,
+                matchType: 'internal-duplicate',
+                reason: '备份文件内重复'
+            });
+            return;
+        }
 
         if (item.id && existingById[item.id]) {
             matchDoc = existingById[item.id];
@@ -1342,9 +1387,20 @@ function analyzeRestoreData() {
         if (!matchDoc) {
             addItems.push({ data: item, action: 'add' });
         } else if (overwrite) {
-            overwriteItems.push({ data: item, action: 'overwrite', matched: matchDoc, matchType: matchType });
+            overwriteItems.push({
+                data: item,
+                action: 'overwrite',
+                matched: matchDoc,
+                matchType: matchType
+            });
         } else {
-            skipItems.push({ data: item, action: 'skip', matched: matchDoc, matchType: matchType });
+            skipItems.push({
+                data: item,
+                action: 'skip',
+                matched: matchDoc,
+                matchType: matchType,
+                reason: matchType === 'id' ? 'ID重复' : '文号重复'
+            });
         }
     });
 
@@ -1429,9 +1485,11 @@ function confirmRestore() {
 
     const existingById = {};
     const existingByDocNumber = {};
-    documents.forEach(function(doc) {
+    const docIndexById = {};
+    documents.forEach(function(doc, index) {
         if (doc.id) {
             existingById[doc.id] = doc;
+            docIndexById[doc.id] = index;
         }
         if (doc.docNumber) {
             existingByDocNumber[doc.docNumber] = doc;
@@ -1444,7 +1502,31 @@ function confirmRestore() {
 
     const finalDocs = documents.slice();
 
+    const seenIdsInBackup = {};
+    const seenDocNumbersInBackup = {};
+
     restoreData.forEach(function(item) {
+        let isInternalDuplicate = false;
+
+        if (item.id && seenIdsInBackup[item.id]) {
+            isInternalDuplicate = true;
+        }
+        if (!isInternalDuplicate && item.docNumber && seenDocNumbersInBackup[item.docNumber]) {
+            isInternalDuplicate = true;
+        }
+
+        if (item.id) {
+            seenIdsInBackup[item.id] = true;
+        }
+        if (item.docNumber) {
+            seenDocNumbersInBackup[item.docNumber] = true;
+        }
+
+        if (isInternalDuplicate) {
+            skipCount++;
+            return;
+        }
+
         let matchDoc = null;
 
         if (item.id && existingById[item.id]) {
@@ -1471,10 +1553,8 @@ function confirmRestore() {
             finalDocs.push(newDoc);
             addCount++;
         } else if (overwrite) {
-            const index = finalDocs.findIndex(function(d) {
-                return d.id === matchDoc.id;
-            });
-            if (index !== -1) {
+            const index = docIndexById[matchDoc.id];
+            if (index !== undefined && index !== -1) {
                 finalDocs[index] = {
                     ...matchDoc,
                     ...item,

@@ -68,7 +68,7 @@
                             </div>
                         </div>
                         <div class="export-menu-item" onclick="exportFullJson()">
-                            <span class="export-menu-icon">�</span>
+                            <span class="export-menu-icon">💾</span>
                             <div class="export-menu-text">
                                 <div class="export-menu-title">导出完整备份 (JSON)</div>
                                 <div class="export-menu-desc">导出全部收文数据用于备份留档</div>
@@ -76,8 +76,11 @@
                         </div>
                     </div>
                 </div>
+                <button class="btn btn-default" onclick="openImportModal()">
+                    <span class="btn-icon">📋</span> 导入收文
+                </button>
                 <button class="btn btn-default" onclick="openRestoreModal()">
-                    <span class="btn-icon">📥</span> 恢复备份
+                    <span class="btn-icon">♻️</span> 恢复备份
                 </button>
                 <button class="btn btn-primary" onclick="openAddModal()">
                     <span class="btn-icon">➕</span> 新增收文
