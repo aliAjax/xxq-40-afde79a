@@ -467,6 +467,7 @@ function executeBatchDepartment(e) {
     saveDocuments(updatedDocs);
     showToast(`成功修改 ${count} 条收文的承办科室`, 'success');
     
+    selectedIds = [];
     closeBatchDepartmentModal();
     updateStats();
     renderDocumentList();
