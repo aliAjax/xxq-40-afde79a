@@ -60,6 +60,14 @@ function migrateDocument(doc) {
         }
     }
 
+    if (migrated.flowStatus === FLOW_STATUS.DONE && !migrated.completed) {
+        migrated.completed = true;
+    }
+
+    if (migrated.completed && migrated.flowStatus !== FLOW_STATUS.DONE) {
+        migrated.flowStatus = FLOW_STATUS.DONE;
+    }
+
     if (!migrated.proposedDepartment) {
         migrated.proposedDepartment = '';
     }
@@ -72,7 +80,7 @@ function migrateDocument(doc) {
         migrated.coDepartments = [];
     }
 
-    if (!migrated.flowRecords) {
+    if (!migrated.flowRecords || migrated.flowRecords.length === 0) {
         migrated.flowRecords = [];
 
         if (migrated.flowStatus === FLOW_STATUS.DONE) {
@@ -140,7 +148,12 @@ function getDocuments() {
     });
 
     const hasOldFormat = documents.some(function(doc) {
-        return !doc.flowStatus || !doc.flowRecords || !doc.undertakingDepartment;
+        return !doc.flowStatus || !doc.flowRecords || doc.flowRecords.length === 0 ||
+               !doc.undertakingDepartment ||
+               (doc.completed && doc.flowStatus !== FLOW_STATUS.DONE) ||
+               (doc.flowStatus === FLOW_STATUS.DONE && !doc.completed) ||
+               doc.reminderNote === undefined ||
+               doc.extendedDeadline === undefined;
     });
     if (hasOldFormat) {
         saveDocuments(migratedDocs);
@@ -2110,7 +2123,8 @@ function confirmComplete(e) {
     }
 
     const doc = documents[index];
-    if (doc.completed) {
+    const flowStatus = getDocumentStatus(doc);
+    if (flowStatus === FLOW_STATUS.DONE) {
         showToast('该收文已办结', 'info');
         closeCompleteModal();
         return;
@@ -2119,18 +2133,37 @@ function confirmComplete(e) {
     if (!doc.processingRecords) {
         doc.processingRecords = [];
     }
+    if (!doc.flowRecords) {
+        doc.flowRecords = [];
+    }
+
+    const now = new Date().toISOString();
 
     const completionRecord = {
         id: generateId(),
         type: 'completion',
         content: remark,
         handler: handler,
-        createdAt: new Date().toISOString()
+        createdAt: now
+    };
+
+    const flowRecord = {
+        id: generateId(),
+        action: FLOW_ACTION.COMPLETE,
+        actionText: FLOW_ACTION_TEXT[FLOW_ACTION.COMPLETE] || '办结',
+        fromStatus: doc.flowStatus,
+        toStatus: FLOW_STATUS.DONE,
+        opinion: remark,
+        handler: handler,
+        department: doc.undertakingDepartment || doc.department || '',
+        createdAt: now
     };
 
     doc.processingRecords.push(completionRecord);
+    doc.flowRecords.push(flowRecord);
+    doc.flowStatus = FLOW_STATUS.DONE;
     doc.completed = true;
-    doc.completedAt = completionRecord.createdAt;
+    doc.completedAt = now;
     doc.completedRemark = remark;
 
     documents[index] = doc;
