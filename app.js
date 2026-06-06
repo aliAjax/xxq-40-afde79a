@@ -115,6 +115,19 @@ function migrateDocument(doc) {
         migrated.processingRecords = [];
     }
 
+    if (!migrated.reminderNote) {
+        migrated.reminderNote = '';
+    }
+    if (!migrated.snoozeUntil) {
+        migrated.snoozeUntil = '';
+    }
+    if (!migrated.extendedDeadline) {
+        migrated.extendedDeadline = '';
+    }
+    if (!migrated.reminderHistory) {
+        migrated.reminderHistory = [];
+    }
+
     return migrated;
 }
 
@@ -602,6 +615,13 @@ function getToday() {
     return today;
 }
 
+function getEffectiveDeadline(doc) {
+    if (doc.extendedDeadline) {
+        return doc.extendedDeadline;
+    }
+    return doc.deadline;
+}
+
 function getDaysRemaining(deadline) {
     const deadlineDate = new Date(deadline);
     deadlineDate.setHours(0, 0, 0, 0);
@@ -611,11 +631,47 @@ function getDaysRemaining(deadline) {
     return diffDays;
 }
 
+function isReminderSnoozed(doc) {
+    if (!doc.snoozeUntil) return false;
+    const snoozeDate = new Date(doc.snoozeUntil);
+    snoozeDate.setHours(0, 0, 0, 0);
+    const today = getToday();
+    return today <= snoozeDate;
+}
+
+function shouldShowInReminderCenter(doc) {
+    if (doc.flowStatus === FLOW_STATUS.DONE) {
+        return false;
+    }
+    if (isReminderSnoozed(doc)) {
+        return false;
+    }
+    const effectiveDeadline = getEffectiveDeadline(doc);
+    const daysRemaining = getDaysRemaining(effectiveDeadline);
+    return daysRemaining <= 3;
+}
+
+function getReminderGroup(doc) {
+    const effectiveDeadline = getEffectiveDeadline(doc);
+    const daysRemaining = getDaysRemaining(effectiveDeadline);
+    if (daysRemaining < 0) {
+        return 'overdue';
+    }
+    if (daysRemaining === 0) {
+        return 'today';
+    }
+    if (daysRemaining <= 3) {
+        return 'soon';
+    }
+    return 'normal';
+}
+
 function getDeadlineStatus(doc) {
     if (doc.flowStatus === FLOW_STATUS.DONE) {
         return 'normal';
     }
-    const daysRemaining = getDaysRemaining(doc.deadline);
+    const effectiveDeadline = getEffectiveDeadline(doc);
+    const daysRemaining = getDaysRemaining(effectiveDeadline);
     if (daysRemaining < 0) {
         return 'overdue';
     }
@@ -1002,19 +1058,24 @@ function renderDocumentList() {
         const flowStatus = getDocumentStatus(doc);
         const flowStatusText = getFlowStatusText(flowStatus);
         const deadlineStatus = getDeadlineStatus(doc);
-        const daysRemaining = getDaysRemaining(doc.deadline);
+        const effectiveDeadline = getEffectiveDeadline(doc);
+        const daysRemaining = getDaysRemaining(effectiveDeadline);
         const isSelected = selectedIds.includes(doc.id);
         const isDone = flowStatus === FLOW_STATUS.DONE;
+        const isExtended = !!doc.extendedDeadline;
 
         let deadlineClass = '';
-        let deadlineText = formatDate(doc.deadline);
+        let deadlineText = formatDate(effectiveDeadline);
         if (!isDone) {
             if (deadlineStatus === 'overdue') {
                 deadlineClass = 'deadline-overdue';
-                deadlineText = `${formatDate(doc.deadline)}（已逾期${Math.abs(daysRemaining)}天）`;
+                deadlineText = `${formatDate(effectiveDeadline)}（已逾期${Math.abs(daysRemaining)}天）`;
             } else if (deadlineStatus === 'urgent') {
                 deadlineClass = 'deadline-urgent';
-                deadlineText = `${formatDate(doc.deadline)}（剩余${daysRemaining}天）`;
+                deadlineText = `${formatDate(effectiveDeadline)}（剩余${daysRemaining}天）`;
+            }
+            if (isExtended) {
+                deadlineText += ' <span class="list-extended-badge">已延期</span>';
             }
         }
 
@@ -2094,16 +2155,22 @@ function viewDocument(id) {
     const flowStatus = getDocumentStatus(doc);
     const flowStatusText = getFlowStatusText(flowStatus);
     const deadlineStatus = getDeadlineStatus(doc);
-    const daysRemaining = getDaysRemaining(doc.deadline);
+    const effectiveDeadline = getEffectiveDeadline(doc);
+    const daysRemaining = getDaysRemaining(effectiveDeadline);
     const isDone = flowStatus === FLOW_STATUS.DONE;
     const undertakingDept = doc.undertakingDepartment || doc.department || '';
+    const isSnoozed = isReminderSnoozed(doc);
+    const isExtended = !!doc.extendedDeadline;
 
-    let deadlineText = formatDate(doc.deadline);
+    let deadlineText = formatDate(effectiveDeadline);
     if (!isDone) {
         if (deadlineStatus === 'overdue') {
-            deadlineText = `${formatDate(doc.deadline)}（已逾期${Math.abs(daysRemaining)}天）`;
+            deadlineText = `${formatDate(effectiveDeadline)}（已逾期${Math.abs(daysRemaining)}天）`;
         } else {
-            deadlineText = `${formatDate(doc.deadline)}（剩余${daysRemaining}天）`;
+            deadlineText = `${formatDate(effectiveDeadline)}（剩余${daysRemaining}天）`;
+        }
+        if (isExtended) {
+            deadlineText += ' <span class="detail-extended-badge">已延期</span>';
         }
     }
 
@@ -2158,6 +2225,29 @@ function viewDocument(id) {
             <span class="detail-label">办理期限</span>
             <span class="detail-value">${deadlineText}</span>
         </div>
+        ${isExtended ? `
+        <div class="detail-item">
+            <span class="detail-label">原办理期限</span>
+            <span class="detail-value">${formatDate(doc.deadline)}</span>
+        </div>
+        ` : ''}
+        ${doc.reminderNote ? `
+        <div class="detail-item">
+            <span class="detail-label">提醒备注</span>
+            <span class="detail-value reminder-note-value">
+                <span class="reminder-note-icon-inline">📝</span>
+                ${escapeHtml(doc.reminderNote)}
+            </span>
+        </div>
+        ` : ''}
+        ${isSnoozed ? `
+        <div class="detail-item">
+            <span class="detail-label">暂不提醒</span>
+            <span class="detail-value">
+                <span class="doc-tag snoozed">暂不提醒至 ${formatDate(doc.snoozeUntil)}</span>
+            </span>
+        </div>
+        ` : ''}
         ${isDone ? `
         <div class="detail-item">
             <span class="detail-label">办结时间</span>
@@ -2187,6 +2277,13 @@ function viewDocument(id) {
             <button class="btn btn-primary" onclick="editDocument('${doc.id}'); closeDetailModal();">编辑</button>
             <button class="btn btn-info" onclick="openAddRecordModal('${doc.id}')">追加进展</button>
             <button class="btn btn-success" onclick="openFlowModal('${doc.id}')">流转办理</button>
+            <div class="detail-actions-divider"></div>
+            <button class="btn btn-default" onclick="openReminderNoteModal('${doc.id}')">📝 提醒备注</button>
+            <button class="btn btn-warning" onclick="openExtendDeadlineModal('${doc.id}')">⏰ 延长期限</button>
+            ${isSnoozed ? 
+                `<button class="btn btn-default" onclick="cancelSnooze('${doc.id}'); viewDocument('${doc.id}');">🔔 取消暂不提醒</button>` :
+                `<button class="btn btn-default" onclick="openSnoozeModal('${doc.id}')">🙈 暂不提醒</button>`
+            }
         `;
     } else {
         detailActions.innerHTML = `
@@ -3106,6 +3203,363 @@ function setupRestoreFileDragDrop() {
     });
 }
 
+function setReminderNote(docId, note) {
+    const documents = getDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId);
+    if (docIndex === -1) return false;
+
+    documents[docIndex].reminderNote = note;
+    documents[docIndex].reminderHistory.push({
+        id: generateId(),
+        type: 'note',
+        note: note,
+        createdAt: new Date().toISOString()
+    });
+
+    saveDocuments(documents);
+    updateStats();
+    renderDocumentList();
+    renderReminderCenter();
+    return true;
+}
+
+function extendDeadline(docId, days) {
+    const documents = getDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId);
+    if (docIndex === -1) return false;
+
+    const doc = documents[docIndex];
+    const currentDeadline = new Date(getEffectiveDeadline(doc));
+    currentDeadline.setDate(currentDeadline.getDate() + parseInt(days));
+    const newDeadline = formatDateInput(currentDeadline);
+
+    const oldDeadline = getEffectiveDeadline(doc);
+    doc.extendedDeadline = newDeadline;
+
+    doc.reminderHistory.push({
+        id: generateId(),
+        type: 'extend',
+        oldDeadline: oldDeadline,
+        newDeadline: newDeadline,
+        extendDays: parseInt(days),
+        createdAt: new Date().toISOString()
+    });
+
+    saveDocuments(documents);
+    updateStats();
+    renderDocumentList();
+    renderReminderCenter();
+    return true;
+}
+
+function snoozeReminder(docId, snoozeDate) {
+    const documents = getDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId);
+    if (docIndex === -1) return false;
+
+    documents[docIndex].snoozeUntil = snoozeDate;
+    documents[docIndex].reminderHistory.push({
+        id: generateId(),
+        type: 'snooze',
+        snoozeUntil: snoozeDate,
+        createdAt: new Date().toISOString()
+    });
+
+    saveDocuments(documents);
+    updateStats();
+    renderDocumentList();
+    renderReminderCenter();
+    return true;
+}
+
+function cancelSnooze(docId) {
+    const documents = getDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId);
+    if (docIndex === -1) return false;
+
+    documents[docIndex].snoozeUntil = '';
+    documents[docIndex].reminderHistory.push({
+        id: generateId(),
+        type: 'cancel_snooze',
+        createdAt: new Date().toISOString()
+    });
+
+    saveDocuments(documents);
+    updateStats();
+    renderDocumentList();
+    renderReminderCenter();
+    return true;
+}
+
+function getReminderCenterData() {
+    const documents = getDocuments();
+    const reminderDocs = documents.filter(doc => shouldShowInReminderCenter(doc));
+
+    const groups = {
+        overdue: [],
+        today: [],
+        soon: []
+    };
+
+    reminderDocs.forEach(doc => {
+        const group = getReminderGroup(doc);
+        if (groups[group]) {
+            groups[group].push(doc);
+        }
+    });
+
+    Object.keys(groups).forEach(key => {
+        groups[key].sort((a, b) => {
+            const daysA = getDaysRemaining(getEffectiveDeadline(a));
+            const daysB = getDaysRemaining(getEffectiveDeadline(b));
+            return daysA - daysB;
+        });
+    });
+
+    return groups;
+}
+
+function renderReminderCenter() {
+    const reminderCenterEl = document.getElementById('reminderCenter');
+    if (!reminderCenterEl) return;
+
+    const groups = getReminderCenterData();
+    const totalCount = groups.overdue.length + groups.today.length + groups.soon.length;
+
+    if (totalCount === 0) {
+        reminderCenterEl.innerHTML = `
+            <div class="reminder-center-empty">
+                <div class="reminder-empty-icon">🎉</div>
+                <div class="reminder-empty-text">暂无到期提醒，继续保持！</div>
+            </div>
+        `;
+        return;
+    }
+
+    let html = '';
+
+    if (groups.overdue.length > 0) {
+        html += `
+            <div class="reminder-group overdue">
+                <div class="reminder-group-header">
+                    <span class="reminder-group-title">
+                        <span class="reminder-group-icon">🔴</span>
+                        已逾期
+                    </span>
+                    <span class="reminder-group-count">${groups.overdue.length} 件</span>
+                </div>
+                <div class="reminder-list">
+                    ${groups.overdue.map(doc => renderReminderItem(doc)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (groups.today.length > 0) {
+        html += `
+            <div class="reminder-group today">
+                <div class="reminder-group-header">
+                    <span class="reminder-group-title">
+                        <span class="reminder-group-icon">🟠</span>
+                        今天到期
+                    </span>
+                    <span class="reminder-group-count">${groups.today.length} 件</span>
+                </div>
+                <div class="reminder-list">
+                    ${groups.today.map(doc => renderReminderItem(doc)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (groups.soon.length > 0) {
+        html += `
+            <div class="reminder-group soon">
+                <div class="reminder-group-header">
+                    <span class="reminder-group-title">
+                        <span class="reminder-group-icon">🟡</span>
+                        3天内到期
+                    </span>
+                    <span class="reminder-group-count">${groups.soon.length} 件</span>
+                </div>
+                <div class="reminder-list">
+                    ${groups.soon.map(doc => renderReminderItem(doc)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    reminderCenterEl.innerHTML = html;
+}
+
+function renderReminderItem(doc) {
+    const effectiveDeadline = getEffectiveDeadline(doc);
+    const daysRemaining = getDaysRemaining(effectiveDeadline);
+    const undertakingDept = doc.undertakingDepartment || doc.department || '';
+    const flowStatus = getDocumentStatus(doc);
+    const flowStatusText = getFlowStatusText(flowStatus);
+    const isExtended = !!doc.extendedDeadline;
+
+    let deadlineText = '';
+    if (daysRemaining < 0) {
+        deadlineText = `已逾期 ${Math.abs(daysRemaining)} 天`;
+    } else if (daysRemaining === 0) {
+        deadlineText = '今天到期';
+    } else {
+        deadlineText = `剩余 ${daysRemaining} 天`;
+    }
+
+    return `
+        <div class="reminder-item" onclick="viewDocument('${doc.id}')">
+            <div class="reminder-item-main">
+                <div class="reminder-item-title">${escapeHtml(doc.title)}</div>
+                <div class="reminder-item-meta">
+                    <span class="reminder-meta-item">
+                        <span class="reminder-meta-label">来文单位:</span>
+                        <span class="reminder-meta-value">${escapeHtml(doc.fromUnit)}</span>
+                    </span>
+                    <span class="reminder-meta-item">
+                        <span class="reminder-meta-label">承办科室:</span>
+                        <span class="reminder-meta-value">${escapeHtml(undertakingDept)}</span>
+                    </span>
+                    <span class="reminder-meta-item">
+                        <span class="reminder-meta-label">状态:</span>
+                        <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
+                    </span>
+                    ${isExtended ? '<span class="doc-tag reminder-extended">已延期</span>' : ''}
+                </div>
+                ${doc.reminderNote ? `
+                <div class="reminder-item-note">
+                    <span class="reminder-note-icon">📝</span>
+                    <span class="reminder-note-text">${escapeHtml(doc.reminderNote)}</span>
+                </div>
+                ` : ''}
+            </div>
+            <div class="reminder-item-right">
+                <div class="reminder-deadline ${daysRemaining < 0 ? 'overdue' : daysRemaining === 0 ? 'today' : 'soon'}">
+                    ${deadlineText}
+                </div>
+                <div class="reminder-deadline-date">${formatDate(effectiveDeadline)}</div>
+                <div class="reminder-actions" onclick="event.stopPropagation();">
+                    <button class="reminder-action-btn" onclick="openReminderNoteModal('${doc.id}')" title="设置备注">
+                        📝 备注
+                    </button>
+                    <button class="reminder-action-btn" onclick="openExtendDeadlineModal('${doc.id}')" title="延长期限">
+                        ⏰ 延期
+                    </button>
+                    <button class="reminder-action-btn" onclick="openSnoozeModal('${doc.id}')" title="暂不提醒">
+                        🙈 暂不提醒
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+let currentReminderDocId = null;
+
+function openReminderNoteModal(docId) {
+    currentReminderDocId = docId;
+    const documents = getDocuments();
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+
+    document.getElementById('reminderNoteInput').value = doc.reminderNote || '';
+    document.getElementById('reminderNoteModal').classList.add('show');
+    setTimeout(() => {
+        document.getElementById('reminderNoteInput').focus();
+    }, 100);
+}
+
+function closeReminderNoteModal() {
+    document.getElementById('reminderNoteModal').classList.remove('show');
+    currentReminderDocId = null;
+}
+
+function saveReminderNote() {
+    if (!currentReminderDocId) return;
+    const note = document.getElementById('reminderNoteInput').value.trim();
+    if (setReminderNote(currentReminderDocId, note)) {
+        showToast('提醒备注已保存', 'success');
+        closeReminderNoteModal();
+    }
+}
+
+function openExtendDeadlineModal(docId) {
+    currentReminderDocId = docId;
+    const documents = getDocuments();
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+
+    const currentDeadline = getEffectiveDeadline(doc);
+    document.getElementById('extendCurrentDeadline').textContent = formatDate(currentDeadline);
+    document.getElementById('extendDays').value = '3';
+    updateExtendPreview();
+
+    document.getElementById('extendDeadlineModal').classList.add('show');
+}
+
+function closeExtendDeadlineModal() {
+    document.getElementById('extendDeadlineModal').classList.remove('show');
+    currentReminderDocId = null;
+}
+
+function updateExtendPreview() {
+    const documents = getDocuments();
+    const doc = documents.find(d => d.id === currentReminderDocId);
+    if (!doc) return;
+
+    const days = parseInt(document.getElementById('extendDays').value) || 0;
+    const currentDeadline = new Date(getEffectiveDeadline(doc));
+    currentDeadline.setDate(currentDeadline.getDate() + days);
+    document.getElementById('extendNewDeadline').textContent = formatDate(formatDateInput(currentDeadline));
+}
+
+function confirmExtendDeadline() {
+    if (!currentReminderDocId) return;
+    const days = parseInt(document.getElementById('extendDays').value) || 0;
+    if (days <= 0) {
+        showToast('请输入有效的延期天数', 'error');
+        return;
+    }
+    if (extendDeadline(currentReminderDocId, days)) {
+        showToast(`已延期 ${days} 天`, 'success');
+        closeExtendDeadlineModal();
+    }
+}
+
+function openSnoozeModal(docId) {
+    currentReminderDocId = docId;
+    const documents = getDocuments();
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+
+    const today = getToday();
+    const defaultSnooze = new Date(today);
+    defaultSnooze.setDate(defaultSnooze.getDate() + 3);
+    document.getElementById('snoozeDate').value = formatDateInput(defaultSnooze);
+
+    document.getElementById('snoozeModal').classList.add('show');
+}
+
+function closeSnoozeModal() {
+    document.getElementById('snoozeModal').classList.remove('show');
+    currentReminderDocId = null;
+}
+
+function confirmSnooze() {
+    if (!currentReminderDocId) return;
+    const snoozeDate = document.getElementById('snoozeDate').value;
+    if (!snoozeDate) {
+        showToast('请选择暂不提醒的日期', 'error');
+        return;
+    }
+    if (snoozeReminder(currentReminderDocId, snoozeDate)) {
+        showToast('已设置暂不提醒', 'success');
+        closeSnoozeModal();
+    }
+}
+
 function init() {
     document.getElementById('documentForm').addEventListener('submit', saveDocument);
 
@@ -3139,6 +3593,9 @@ function init() {
             if (typeof closeCompleteModal === 'function') closeCompleteModal();
             closeSaveTemplateModal();
             closeFlowModal();
+            closeReminderNoteModal();
+            closeExtendDeadlineModal();
+            closeSnoozeModal();
         }
     });
 
@@ -3153,6 +3610,7 @@ function init() {
     setupRestoreFileDragDrop();
     updateFilterActiveBadge();
     updateStats();
+    renderReminderCenter();
     renderDocumentList();
 }
 

@@ -63,6 +63,20 @@
             </div>
         </div>
 
+        <div class="reminder-center">
+            <div class="reminder-center-header">
+                <div class="reminder-center-title">
+                    <span class="reminder-center-icon">🔔</span>
+                    到期提醒中心
+                </div>
+                <div class="reminder-center-subtitle">
+                    重点关注快到期和已逾期的收文
+                </div>
+            </div>
+            <div id="reminderCenter" class="reminder-center-content">
+            </div>
+        </div>
+
         <div class="toolbar">
             <div class="search-box">
                 <input type="text" id="searchInput" placeholder="搜索标题、来文单位、承办科室..." class="search-input">
@@ -924,6 +938,79 @@
                         <button type="submit" class="btn btn-primary">确认</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="reminderNoteModal">
+        <div class="modal-overlay" onclick="closeReminderNoteModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">📝 设置提醒备注</h3>
+                <button class="modal-close" onclick="closeReminderNoteModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="reminderNoteInput">提醒备注</label>
+                    <textarea id="reminderNoteInput" class="form-input form-textarea" placeholder="请输入提醒备注内容..." rows="4"></textarea>
+                </div>
+                <div class="form-hint">备注内容会显示在提醒中心和详情页中，方便快速了解重点关注事项</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="closeReminderNoteModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveReminderNote()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="extendDeadlineModal">
+        <div class="modal-overlay" onclick="closeExtendDeadlineModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">⏰ 延长期限</h3>
+                <button class="modal-close" onclick="closeExtendDeadlineModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="extend-info">
+                    <div class="extend-info-item">
+                        <span class="extend-info-label">当前期限：</span>
+                        <span class="extend-info-value" id="extendCurrentDeadline">-</span>
+                    </div>
+                    <div class="extend-info-item">
+                        <span class="extend-info-label">延期后：</span>
+                        <span class="extend-info-value extend-highlight" id="extendNewDeadline">-</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="extendDays">延期天数</label>
+                    <input type="number" id="extendDays" class="form-input" min="1" value="3" oninput="updateExtendPreview()">
+                </div>
+                <div class="form-hint">延期后，列表、详情、统计中的到期状态会同步更新</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="closeExtendDeadlineModal()">取消</button>
+                <button class="btn btn-primary" onclick="confirmExtendDeadline()">确认延期</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="snoozeModal">
+        <div class="modal-overlay" onclick="closeSnoozeModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">🙈 暂不提醒</h3>
+                <button class="modal-close" onclick="closeSnoozeModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label" for="snoozeDate">暂不提醒至</label>
+                    <input type="date" id="snoozeDate" class="form-input">
+                </div>
+                <div class="form-hint">在指定日期之前，这条收文不会出现在到期提醒中心</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="closeSnoozeModal()">取消</button>
+                <button class="btn btn-primary" onclick="confirmSnooze()">确认</button>
             </div>
         </div>
     </div>
