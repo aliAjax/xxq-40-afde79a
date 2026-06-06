@@ -1242,14 +1242,6 @@ body {
     background: #ffe8e6;
 }
 
-.import-preview-table tr.row-warning {
-    background: #fffbe6;
-}
-
-.import-preview-table tr.row-warning:hover {
-    background: #fff5cc;
-}
-
 .import-preview-table .cell-error {
     color: #ff4d4f;
     font-weight: 500;

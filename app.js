@@ -786,10 +786,10 @@ function closeImportModal() {
 
 function switchImportTab(tab) {
     currentImportTab = tab;
-    document.querySelectorAll('.import-tab').forEach(t => {
+    document.querySelectorAll('.import-tab').forEach(function(t) {
         t.classList.remove('active');
     });
-    document.querySelector(`.import-tab[data-import-tab="${tab}"]`).classList.add('active');
+    document.querySelector('.import-tab[data-import-tab="' + tab + '"]').classList.add('active');
 
     document.getElementById('importTabPaste').style.display = tab === 'paste' ? 'block' : 'none';
     document.getElementById('importTabFile').style.display = tab === 'file' ? 'block' : 'none';
@@ -847,7 +847,8 @@ function processFile(file) {
     }
 
     const fileNameEl = document.getElementById('selectedFileName');
-    fileNameEl.textContent = `已选择文件：${file.name}（${(file.size / 1024).toFixed(2)} KB）`;
+    const fileSizeKb = (file.size / 1024).toFixed(2);
+    fileNameEl.textContent = '已选择文件：' + file.name + '（' + fileSizeKb + ' KB）';
     fileNameEl.style.display = 'block';
 
     const reader = new FileReader();
@@ -878,7 +879,6 @@ function isValidDepartment(dept) {
 
 function validateImportRow(row, index, allRows, existingDocs) {
     const errors = [];
-    const warnings = [];
 
     if (!row.fromUnit) {
         errors.push('来文单位不能为空');
@@ -897,7 +897,7 @@ function validateImportRow(row, index, allRows, existingDocs) {
     if (!row.urgency) {
         errors.push('紧急程度不能为空');
     } else if (!isValidUrgency(row.urgency)) {
-        errors.push('紧急程度无效（应为：普通/加急/特急）');
+        errors.push('紧急程度无效');
     }
     if (!row.department) {
         errors.push('承办科室不能为空');
@@ -911,37 +911,37 @@ function validateImportRow(row, index, allRows, existingDocs) {
     }
 
     if (row.docNumber) {
-        const dupInImport = allRows.filter((r, i) => 
-            i !== index && r.docNumber && r.docNumber === row.docNumber
-        );
+        const dupInImport = allRows.filter(function(r, i) {
+            return i < index && r.docNumber && r.docNumber === row.docNumber;
+        });
         if (dupInImport.length > 0) {
-            warnings.push('导入数据内文号重复');
+            errors.push('导入数据内文号重复');
         }
 
-        const dupInExisting = existingDocs.filter(d => d.docNumber === row.docNumber);
+        const dupInExisting = existingDocs.filter(function(d) {
+            return d.docNumber === row.docNumber;
+        });
         if (dupInExisting.length > 0) {
-            warnings.push('与现有数据文号重复');
+            errors.push('与现有数据文号重复');
         }
     }
 
     return {
         valid: errors.length === 0,
-        errors,
-        warnings
+        errors: errors
     };
 }
 
 function processCsvData(csvText) {
-    const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
-    
+    const lines = csvText.split(/\r?\n/).filter(function(line) {
+        return line.trim() !== '';
+    });
+
     if (lines.length < 2) {
         showToast('CSV数据至少需要包含表头和一行数据', 'error');
         return;
     }
 
-    const headerLine = lines[0];
-    const headers = parseCsvLine(headerLine);
-    
     const dataLines = lines.slice(1);
     const parsedRows = [];
 
@@ -961,17 +961,20 @@ function processCsvData(csvText) {
     }
 
     const existingDocs = getDocuments();
-    const validatedRows = parsedRows.map((row, index) => {
+    const validatedRows = parsedRows.map(function(row, index) {
         const validation = validateImportRow(row, index, parsedRows, existingDocs);
         return {
             rowIndex: index + 2,
             data: row,
-            ...validation
+            valid: validation.valid,
+            errors: validation.errors
         };
     });
 
     importParsedData = validatedRows;
-    importValidData = validatedRows.filter(r => r.valid);
+    importValidData = validatedRows.filter(function(r) {
+        return r.valid;
+    });
 
     renderImportPreview();
 }
@@ -990,61 +993,48 @@ function renderImportPreview() {
     const errorSummaryEl = document.getElementById('importErrorSummary');
     if (invalidCount > 0) {
         const errorTypes = {};
-        importParsedData.forEach(item => {
-            item.errors.forEach(err => {
+        importParsedData.forEach(function(item) {
+            item.errors.forEach(function(err) {
                 errorTypes[err] = (errorTypes[err] || 0) + 1;
             });
-            item.warnings.forEach(warn => {
-                errorTypes[warn] = (errorTypes[warn] || 0) + 1;
-            });
         });
-        const errorHtml = Object.entries(errorTypes).map(([msg, count]) => 
-            `<span class="import-error-tag">${msg} (${count}条)</span>`
-        ).join('');
-        errorSummaryEl.innerHTML = `<div class="import-error-title">问题汇总：</div>${errorHtml}`;
+        const errorHtml = Object.keys(errorTypes).map(function(msg) {
+            return '<span class="import-error-tag">' + msg + ' (' + errorTypes[msg] + '条)</span>';
+        }).join('');
+        errorSummaryEl.innerHTML = '<div class="import-error-title">问题汇总：</div>' + errorHtml;
         errorSummaryEl.style.display = 'block';
     } else {
         errorSummaryEl.style.display = 'none';
     }
 
-    tbody.innerHTML = importParsedData.map(item => {
+    tbody.innerHTML = importParsedData.map(function(item) {
         const rowClass = item.valid ? 'row-valid' : 'row-invalid';
         const statusText = item.valid ? '有效' : '无效';
         const statusClass = item.valid ? 'status-valid' : 'status-invalid';
-        
-        const hasWarning = item.warnings.length > 0;
-        const rowFinalClass = hasWarning ? 'row-warning' : rowClass;
-        
-        let errorTooltip = '';
-        if (item.errors.length > 0 || item.warnings.length > 0) {
-            const allIssues = [...item.errors, ...item.warnings];
-            errorTooltip = allIssues.join('；');
-        }
+        const errorTooltip = item.errors.join('；');
 
-        return `
-            <tr class="${rowFinalClass}" title="${escapeHtml(errorTooltip)}">
-                <td>${item.rowIndex}</td>
-                <td class="${!item.data.fromUnit ? 'cell-error' : ''}">${escapeHtml(item.data.fromUnit) || '-'}</td>
-                <td class="${!item.data.docNumber ? 'cell-error' : ''}">${escapeHtml(item.data.docNumber) || '-'}</td>
-                <td class="${!item.data.title ? 'cell-error' : ''}">${escapeHtml(item.data.title) || '-'}</td>
-                <td class="${!item.data.receiveDate || !isValidDate(item.data.receiveDate) ? 'cell-error' : ''}">${escapeHtml(item.data.receiveDate) || '-'}</td>
-                <td class="${!item.data.urgency || !isValidUrgency(item.data.urgency) ? 'cell-error' : ''}">${escapeHtml(item.data.urgency) || '-'}</td>
-                <td class="${!item.data.department || !isValidDepartment(item.data.department) ? 'cell-error' : ''}">${escapeHtml(item.data.department) || '-'}</td>
-                <td class="${!item.data.deadline || !isValidDate(item.data.deadline) ? 'cell-error' : ''}">${escapeHtml(item.data.deadline) || '-'}</td>
-                <td>${escapeHtml(item.data.remark) || '-'}</td>
-                <td><span class="import-row-status ${statusClass}">${statusText}</span></td>
-            </tr>
-        `;
+        return '<tr class="' + rowClass + '" title="' + escapeHtml(errorTooltip) + '">' +
+            '<td>' + item.rowIndex + '</td>' +
+            '<td class="' + (!item.data.fromUnit ? 'cell-error' : '') + '">' + (escapeHtml(item.data.fromUnit) || '-') + '</td>' +
+            '<td class="' + (!item.data.docNumber ? 'cell-error' : '') + '">' + (escapeHtml(item.data.docNumber) || '-') + '</td>' +
+            '<td class="' + (!item.data.title ? 'cell-error' : '') + '">' + (escapeHtml(item.data.title) || '-') + '</td>' +
+            '<td class="' + (!item.data.receiveDate || !isValidDate(item.data.receiveDate) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.receiveDate) || '-') + '</td>' +
+            '<td class="' + (!item.data.urgency || !isValidUrgency(item.data.urgency) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.urgency) || '-') + '</td>' +
+            '<td class="' + (!item.data.department || !isValidDepartment(item.data.department) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.department) || '-') + '</td>' +
+            '<td class="' + (!item.data.deadline || !isValidDate(item.data.deadline) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.deadline) || '-') + '</td>' +
+            '<td>' + (escapeHtml(item.data.remark) || '-') + '</td>' +
+            '<td><span class="import-row-status ' + statusClass + '">' + statusText + '</span></td>' +
+            '</tr>';
     }).join('');
 
     previewSection.style.display = 'block';
-    
+
     const confirmBtn = document.getElementById('importConfirmBtn');
     confirmBtn.disabled = validCount === 0;
     if (validCount > 0) {
-        confirmBtn.innerHTML = `<span class="btn-icon">✓</span> 确认导入 (${validCount}条)`;
+        confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认导入 (' + validCount + '条)';
     } else {
-        confirmBtn.innerHTML = `<span class="btn-icon">✓</span> 确认导入`;
+        confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认导入';
     }
 }
 
@@ -1055,31 +1045,33 @@ function confirmImport() {
     }
 
     const documents = getDocuments();
-    const newDocs = importValidData.map(item => ({
-        id: generateId(),
-        fromUnit: item.data.fromUnit,
-        docNumber: item.data.docNumber,
-        title: item.data.title,
-        receiveDate: item.data.receiveDate,
-        urgency: item.data.urgency,
-        department: item.data.department,
-        deadline: item.data.deadline,
-        remark: item.data.remark || '',
-        completed: false,
-        completedAt: null,
-        createdAt: new Date().toISOString()
-    }));
+    const newDocs = importValidData.map(function(item) {
+        return {
+            id: generateId(),
+            fromUnit: item.data.fromUnit,
+            docNumber: item.data.docNumber,
+            title: item.data.title,
+            receiveDate: item.data.receiveDate,
+            urgency: item.data.urgency,
+            department: item.data.department,
+            deadline: item.data.deadline,
+            remark: item.data.remark || '',
+            completed: false,
+            completedAt: null,
+            createdAt: new Date().toISOString()
+        };
+    });
 
-    const updatedDocs = [...newDocs, ...documents];
+    const updatedDocs = newDocs.concat(documents);
     saveDocuments(updatedDocs);
 
     const validCount = importValidData.length;
     const totalCount = importParsedData.length;
     const skippedCount = totalCount - validCount;
 
-    let msg = `成功导入 ${validCount} 条收文`;
+    let msg = '成功导入 ' + validCount + ' 条收文';
     if (skippedCount > 0) {
-        msg += `，跳过 ${skippedCount} 条无效数据`;
+        msg += '，跳过 ' + skippedCount + ' 条无效数据';
     }
 
     showToast(msg, 'success');
@@ -1092,24 +1084,27 @@ function setupFileDragDrop() {
     const dropArea = document.getElementById('fileUploadArea');
     if (!dropArea) return;
 
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropArea.addEventListener(eventName, function(e) {
+    const preventEvents = ['dragenter', 'dragover', 'dragleave', 'drop'];
+    for (let i = 0; i < preventEvents.length; i++) {
+        dropArea.addEventListener(preventEvents[i], function(e) {
             e.preventDefault();
             e.stopPropagation();
         });
-    });
+    }
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropArea.addEventListener(eventName, function() {
+    const addDragEvents = ['dragenter', 'dragover'];
+    for (let i = 0; i < addDragEvents.length; i++) {
+        dropArea.addEventListener(addDragEvents[i], function() {
             dropArea.classList.add('drag-over');
         });
-    });
+    }
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropArea.addEventListener(eventName, function() {
+    const removeDragEvents = ['dragleave', 'drop'];
+    for (let i = 0; i < removeDragEvents.length; i++) {
+        dropArea.addEventListener(removeDragEvents[i], function() {
             dropArea.classList.remove('drag-over');
         });
-    });
+    }
 
     dropArea.addEventListener('drop', function(e) {
         const files = e.dataTransfer.files;
