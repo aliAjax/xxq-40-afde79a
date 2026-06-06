@@ -933,7 +933,11 @@ function validateImportRow(row, index, allRows, existingDocs) {
 }
 
 function processCsvData(csvText) {
-    const lines = csvText.split(/\r?\n/).filter(function(line) {
+    let text = csvText;
+    if (text.charCodeAt(0) === 0xFEFF) {
+        text = text.slice(1);
+    }
+    const lines = text.split(/\r?\n/).filter(function(line) {
         return line.trim() !== '';
     });
 
@@ -1267,7 +1271,10 @@ function processRestoreFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
-            const content = e.target.result;
+            let content = e.target.result;
+            if (content.charCodeAt(0) === 0xFEFF) {
+                content = content.slice(1);
+            }
             const parsed = JSON.parse(content);
 
             let docs = [];
