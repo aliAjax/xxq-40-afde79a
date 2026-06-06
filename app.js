@@ -1,8 +1,41 @@
 const STORAGE_KEY = 'document_registry_data';
 const TEMPLATE_STORAGE_KEY = 'document_templates';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
+
+const FLOW_STATUS = {
+    PENDING_REVIEW: 'pending_review',
+    PROCESSING: 'processing',
+    PENDING_FEEDBACK: 'pending_feedback',
+    DONE: 'done'
+};
+
+const FLOW_STATUS_TEXT = {
+    'pending_review': '待拟办',
+    'processing': '办理中',
+    'pending_feedback': '待反馈',
+    'done': '已办结'
+};
+
+const FLOW_ACTION = {
+    CREATE: 'create',
+    PROPOSE: 'propose',
+    ASSIGN: 'assign',
+    PROGRESS: 'progress',
+    FEEDBACK: 'feedback',
+    COMPLETE: 'complete'
+};
+
+const FLOW_ACTION_TEXT = {
+    'create': '收文登记',
+    'propose': '拟办',
+    'assign': '交办',
+    'progress': '进展更新',
+    'feedback': '反馈',
+    'complete': '办结'
+};
+
 let currentView = 'list';
-let currentTab = 'pending';
+let currentTab = 'pending_review';
 let searchKeyword = '';
 let advancedFilter = {
     department: '',
@@ -16,16 +49,91 @@ let filterCollapsed = false;
 let selectedIds = [];
 let currentBatchAction = null;
 
+function migrateDocument(doc) {
+    const migrated = { ...doc };
+
+    if (!migrated.flowStatus) {
+        if (migrated.completed) {
+            migrated.flowStatus = FLOW_STATUS.DONE;
+        } else {
+            migrated.flowStatus = FLOW_STATUS.PROCESSING;
+        }
+    }
+
+    if (!migrated.proposedDepartment) {
+        migrated.proposedDepartment = '';
+    }
+
+    if (!migrated.undertakingDepartment) {
+        migrated.undertakingDepartment = migrated.department || '';
+    }
+
+    if (!migrated.coDepartments) {
+        migrated.coDepartments = [];
+    }
+
+    if (!migrated.flowRecords) {
+        migrated.flowRecords = [];
+
+        if (migrated.flowStatus === FLOW_STATUS.DONE) {
+            migrated.flowRecords.push({
+                id: generateId(),
+                action: FLOW_ACTION.CREATE,
+                fromStatus: null,
+                toStatus: FLOW_STATUS.PROCESSING,
+                handler: '',
+                opinion: '收文登记',
+                department: migrated.department || '',
+                createdAt: migrated.createdAt || new Date().toISOString()
+            });
+
+            migrated.flowRecords.push({
+                id: generateId(),
+                action: FLOW_ACTION.COMPLETE,
+                fromStatus: FLOW_STATUS.PROCESSING,
+                toStatus: FLOW_STATUS.DONE,
+                handler: migrated.completedRemark ? '' : '',
+                opinion: migrated.completedRemark || '已办结',
+                department: migrated.department || '',
+                createdAt: migrated.completedAt || new Date().toISOString()
+            });
+        } else {
+            migrated.flowRecords.push({
+                id: generateId(),
+                action: FLOW_ACTION.CREATE,
+                fromStatus: null,
+                toStatus: FLOW_STATUS.PROCESSING,
+                handler: '',
+                opinion: '收文登记',
+                department: migrated.department || '',
+                createdAt: migrated.createdAt || new Date().toISOString()
+            });
+        }
+    }
+
+    if (!migrated.processingRecords) {
+        migrated.processingRecords = [];
+    }
+
+    return migrated;
+}
+
 function getDocuments() {
     const data = localStorage.getItem(STORAGE_KEY);
     if (!data) return [];
     const documents = JSON.parse(data);
-    return documents.map(function(doc) {
-        if (!doc.processingRecords) {
-            doc.processingRecords = [];
-        }
-        return doc;
+    const migratedDocs = documents.map(function(doc) {
+        return migrateDocument(doc);
     });
+
+    const hasOldFormat = documents.some(function(doc) {
+        return !doc.flowStatus || !doc.flowRecords || !doc.undertakingDepartment;
+    });
+    if (hasOldFormat) {
+        saveDocuments(migratedDocs);
+    }
+
+    return migratedDocs;
 }
 
 function saveDocuments(documents) {
@@ -49,7 +157,10 @@ function saveTemplates(templates) {
 function getCurrentFormTemplateData() {
     const fromUnit = document.getElementById('fromUnit').value.trim();
     const urgency = document.getElementById('urgency').value;
-    const department = document.getElementById('department').value;
+    const department = document.getElementById('department') ? document.getElementById('department').value : '';
+    const proposedDepartment = document.getElementById('proposedDepartment') ? document.getElementById('proposedDepartment').value : '';
+    const undertakingDepartment = document.getElementById('undertakingDepartment') ? document.getElementById('undertakingDepartment').value : department;
+    const coDepartments = getAddCoDepartments();
     const deadline = document.getElementById('deadline').value;
     const receiveDate = document.getElementById('receiveDate').value;
     const remark = document.getElementById('remark').value.trim();
@@ -63,16 +174,22 @@ function getCurrentFormTemplateData() {
     return {
         fromUnit: fromUnit,
         urgency: urgency,
-        department: department,
+        department: undertakingDepartment || department,
+        proposedDepartment: proposedDepartment,
+        undertakingDepartment: undertakingDepartment || department,
+        coDepartments: coDepartments,
         deadlineDays: deadlineDays,
         remark: remark
     };
 }
 
 function isTemplateContentEqual(a, b) {
+    const coDepEqual = JSON.stringify(a.coDepartments || []) === JSON.stringify(b.coDepartments || []);
     return a.fromUnit === b.fromUnit &&
         a.urgency === b.urgency &&
-        a.department === b.department &&
+        a.undertakingDepartment === b.undertakingDepartment &&
+        a.proposedDepartment === b.proposedDepartment &&
+        coDepEqual &&
         a.deadlineDays === b.deadlineDays &&
         a.remark === b.remark;
 }
@@ -103,7 +220,7 @@ function renderTemplateSelect() {
 function applyTemplate(templateId) {
     const deleteBtn = document.getElementById('deleteTemplateBtn');
     if (!templateId) {
-        deleteBtn.style.display = 'none';
+        if (deleteBtn) deleteBtn.style.display = 'none';
         return;
     }
 
@@ -113,8 +230,18 @@ function applyTemplate(templateId) {
 
     document.getElementById('fromUnit').value = tpl.fromUnit || '';
     document.getElementById('urgency').value = tpl.urgency || '普通';
-    document.getElementById('department').value = tpl.department || '';
     document.getElementById('remark').value = tpl.remark || '';
+
+    const deptEl = document.getElementById('department');
+    if (deptEl) deptEl.value = tpl.department || tpl.undertakingDepartment || '';
+
+    const proposedDeptEl = document.getElementById('proposedDepartment');
+    if (proposedDeptEl) proposedDeptEl.value = tpl.proposedDepartment || '';
+
+    const undertakingDeptEl = document.getElementById('undertakingDepartment');
+    if (undertakingDeptEl) undertakingDeptEl.value = tpl.undertakingDepartment || tpl.department || '';
+
+    renderCoDeptCheckboxesAdd(tpl.coDepartments || []);
 
     if (tpl.deadlineDays && tpl.deadlineDays > 0) {
         const receiveDate = document.getElementById('receiveDate').value;
@@ -125,7 +252,7 @@ function applyTemplate(templateId) {
         }
     }
 
-    deleteBtn.style.display = 'inline-flex';
+    if (deleteBtn) deleteBtn.style.display = 'inline-flex';
     showToast('已应用模板：' + tpl.name, 'info');
 }
 
@@ -311,6 +438,36 @@ function formatDateTime(dateStr) {
     return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
+function getLatestFlowRecord(doc) {
+    if (!doc.flowRecords || doc.flowRecords.length === 0) {
+        return null;
+    }
+    const sorted = doc.flowRecords.slice().sort(function(a, b) {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+    return sorted[0];
+}
+
+function renderLatestFlowRecordSummary(doc) {
+    const latest = getLatestFlowRecord(doc);
+    if (!latest) {
+        return '';
+    }
+    const actionText = FLOW_ACTION_TEXT[latest.action] || latest.action;
+    const content = latest.opinion || '';
+    const summary = content.length > 40 ? content.substring(0, 40) + '...' : content;
+    const handlerText = latest.handler ? ' · ' + escapeHtml(latest.handler) : '';
+    const time = formatDateTime(latest.createdAt);
+    return `
+        <div class="doc-latest-record">
+            <span class="latest-record-icon">🔄</span>
+            <span class="latest-record-type">${actionText}</span>
+            <span class="latest-record-content">${escapeHtml(summary) || '—'}</span>
+            <span class="latest-record-meta">${time}${handlerText}</span>
+        </div>
+    `;
+}
+
 function getLatestRecord(doc) {
     if (!doc.processingRecords || doc.processingRecords.length === 0) {
         return null;
@@ -350,6 +507,58 @@ function renderLatestRecordSummary(doc) {
             <span class="latest-record-meta">${time}${handlerText}</span>
         </div>
     `;
+}
+
+function renderFlowTimeline(doc) {
+    const records = doc.flowRecords || [];
+    if (records.length === 0) {
+        return '<div class="records-empty">暂无流转记录</div>';
+    }
+    const sortedRecords = records.slice().sort(function(a, b) {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+    let html = '<div class="flow-timeline">';
+    sortedRecords.forEach(function(record, index) {
+        const isLast = index === sortedRecords.length - 1;
+        const actionText = FLOW_ACTION_TEXT[record.action] || record.action;
+        const fromStatusText = record.fromStatus ? FLOW_STATUS_TEXT[record.fromStatus] : '-';
+        const toStatusText = record.toStatus ? FLOW_STATUS_TEXT[record.toStatus] : '-';
+        const statusChange = record.fromStatus && record.toStatus ?
+            `<span class="flow-status-change">${fromStatusText} → ${toStatusText}</span>` : '';
+
+        let icon = '📄';
+        if (record.action === FLOW_ACTION.CREATE) icon = '📝';
+        else if (record.action === FLOW_ACTION.PROPOSE) icon = '💡';
+        else if (record.action === FLOW_ACTION.ASSIGN) icon = '📤';
+        else if (record.action === FLOW_ACTION.PROGRESS) icon = '🔄';
+        else if (record.action === FLOW_ACTION.FEEDBACK) icon = '📥';
+        else if (record.action === FLOW_ACTION.COMPLETE) icon = '✅';
+
+        const isComplete = record.action === FLOW_ACTION.COMPLETE;
+
+        html += `
+            <div class="flow-timeline-item ${isComplete ? 'flow-complete' : ''} ${isLast ? 'flow-last' : ''}">
+                <div class="flow-timeline-dot">
+                    <span class="flow-dot-icon">${icon}</span>
+                </div>
+                <div class="flow-timeline-line"></div>
+                <div class="flow-timeline-content">
+                    <div class="flow-timeline-header">
+                        <span class="flow-action-tag">${actionText}</span>
+                        ${statusChange}
+                        <span class="flow-time">${formatDateTime(record.createdAt)}</span>
+                    </div>
+                    ${record.opinion ? `<div class="flow-opinion">${escapeHtml(record.opinion)}</div>` : ''}
+                    <div class="flow-meta">
+                        ${record.handler ? `<span class="flow-meta-item">👤 ${escapeHtml(record.handler)}</span>` : ''}
+                        ${record.department ? `<span class="flow-meta-item">🏢 ${escapeHtml(record.department)}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    return html;
 }
 
 function renderProcessingRecords(doc) {
@@ -402,9 +611,9 @@ function getDaysRemaining(deadline) {
     return diffDays;
 }
 
-function getDocumentStatus(doc) {
-    if (doc.completed) {
-        return 'done';
+function getDeadlineStatus(doc) {
+    if (doc.flowStatus === FLOW_STATUS.DONE) {
+        return 'normal';
     }
     const daysRemaining = getDaysRemaining(doc.deadline);
     if (daysRemaining < 0) {
@@ -413,17 +622,28 @@ function getDocumentStatus(doc) {
     if (daysRemaining <= 3) {
         return 'urgent';
     }
-    return 'pending';
+    return 'normal';
+}
+
+function getDocumentStatus(doc) {
+    return doc.flowStatus || FLOW_STATUS.PENDING_REVIEW;
+}
+
+function getFlowStatusText(status) {
+    return FLOW_STATUS_TEXT[status] || '待拟办';
+}
+
+function getDeadlineStatusText(status) {
+    const statusMap = {
+        'normal': '正常',
+        'urgent': '即将到期',
+        'overdue': '已逾期'
+    };
+    return statusMap[status] || '正常';
 }
 
 function getStatusText(status) {
-    const statusMap = {
-        'pending': '待办理',
-        'urgent': '即将到期',
-        'overdue': '已逾期',
-        'done': '已办结'
-    };
-    return statusMap[status] || '待办理';
+    return getFlowStatusText(status);
 }
 
 function showToast(message, type = 'info') {
@@ -442,30 +662,57 @@ function showToast(message, type = 'info') {
 
 function updateStats() {
     const documents = getDocuments();
-    let pendingCount = 0;
-    let urgentCount = 0;
+    let pendingReviewCount = 0;
+    let processingCount = 0;
+    let pendingFeedbackCount = 0;
     let doneCount = 0;
+    let urgentCount = 0;
+    let overdueCount = 0;
 
     documents.forEach(doc => {
-        const status = getDocumentStatus(doc);
-        if (status === 'done') {
+        const flowStatus = getDocumentStatus(doc);
+        const deadlineStatus = getDeadlineStatus(doc);
+
+        if (flowStatus === FLOW_STATUS.PENDING_REVIEW) {
+            pendingReviewCount++;
+        } else if (flowStatus === FLOW_STATUS.PROCESSING) {
+            processingCount++;
+        } else if (flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
+            pendingFeedbackCount++;
+        } else if (flowStatus === FLOW_STATUS.DONE) {
             doneCount++;
-        } else if (status === 'urgent' || status === 'overdue') {
+        }
+
+        if (deadlineStatus === 'urgent') {
             urgentCount++;
-            pendingCount++;
-        } else {
-            pendingCount++;
+        } else if (deadlineStatus === 'overdue') {
+            overdueCount++;
         }
     });
 
-    document.getElementById('pendingCount').textContent = pendingCount;
-    document.getElementById('urgentCount').textContent = urgentCount;
-    document.getElementById('doneCount').textContent = doneCount;
-    document.getElementById('totalCount').textContent = documents.length;
+    const pendingCountEl = document.getElementById('pendingCount');
+    if (pendingCountEl) pendingCountEl.textContent = pendingReviewCount;
+    const processingCountEl = document.getElementById('processingCount');
+    if (processingCountEl) processingCountEl.textContent = processingCount;
+    const feedbackCountEl = document.getElementById('feedbackCount');
+    if (feedbackCountEl) feedbackCountEl.textContent = pendingFeedbackCount;
+    const doneCountEl = document.getElementById('doneCount');
+    if (doneCountEl) doneCountEl.textContent = doneCount;
+    const totalCountEl = document.getElementById('totalCount');
+    if (totalCountEl) totalCountEl.textContent = documents.length;
+    const urgentCountEl = document.getElementById('urgentCount');
+    if (urgentCountEl) urgentCountEl.textContent = urgentCount + overdueCount;
 
-    document.getElementById('tabPendingBadge').textContent = pendingCount;
-    document.getElementById('tabUrgentBadge').textContent = urgentCount;
-    document.getElementById('tabDoneBadge').textContent = doneCount;
+    const tabPendingReviewBadge = document.getElementById('tabPendingReviewBadge');
+    if (tabPendingReviewBadge) tabPendingReviewBadge.textContent = pendingReviewCount;
+    const tabProcessingBadge = document.getElementById('tabProcessingBadge');
+    if (tabProcessingBadge) tabProcessingBadge.textContent = processingCount;
+    const tabFeedbackBadge = document.getElementById('tabFeedbackBadge');
+    if (tabFeedbackBadge) tabFeedbackBadge.textContent = pendingFeedbackCount;
+    const tabDoneBadge = document.getElementById('tabDoneBadge');
+    if (tabDoneBadge) tabDoneBadge.textContent = doneCount;
+    const tabUrgentBadge = document.getElementById('tabUrgentBadge');
+    if (tabUrgentBadge) tabUrgentBadge.textContent = urgentCount + overdueCount;
 
     if (currentView === 'board') {
         renderDepartmentBoard();
@@ -478,7 +725,9 @@ function getDepartmentStats() {
 
     DEPARTMENT_LIST.forEach(dept => {
         stats[dept] = {
-            pending: 0,
+            pending_review: 0,
+            processing: 0,
+            pending_feedback: 0,
             urgent: 0,
             overdue: 0,
             done: 0,
@@ -487,28 +736,40 @@ function getDepartmentStats() {
     });
 
     documents.forEach(doc => {
-        const dept = doc.department;
+        const dept = doc.undertakingDepartment || doc.department || '';
+        if (!dept) return;
+
         if (!stats[dept]) {
             stats[dept] = {
-                pending: 0,
+                pending_review: 0,
+                processing: 0,
+                pending_feedback: 0,
                 urgent: 0,
                 overdue: 0,
                 done: 0,
                 total: 0
             };
         }
-        const status = getDocumentStatus(doc);
+
+        const flowStatus = getDocumentStatus(doc);
+        const deadlineStatus = getDeadlineStatus(doc);
+
         stats[dept].total++;
-        if (status === 'done') {
+
+        if (flowStatus === FLOW_STATUS.PENDING_REVIEW) {
+            stats[dept].pending_review++;
+        } else if (flowStatus === FLOW_STATUS.PROCESSING) {
+            stats[dept].processing++;
+        } else if (flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
+            stats[dept].pending_feedback++;
+        } else if (flowStatus === FLOW_STATUS.DONE) {
             stats[dept].done++;
-        } else if (status === 'overdue') {
-            stats[dept].overdue++;
-            stats[dept].pending++;
-        } else if (status === 'urgent') {
+        }
+
+        if (deadlineStatus === 'urgent') {
             stats[dept].urgent++;
-            stats[dept].pending++;
-        } else {
-            stats[dept].pending++;
+        } else if (deadlineStatus === 'overdue') {
+            stats[dept].overdue++;
         }
     });
 
@@ -534,8 +795,9 @@ function renderDepartmentBoard() {
     }
 
     boardCards.innerHTML = allDepts.map(dept => {
-        const s = stats[dept] || { pending: 0, urgent: 0, overdue: 0, done: 0, total: 0 };
+        const s = stats[dept] || { pending_review: 0, processing: 0, pending_feedback: 0, urgent: 0, overdue: 0, done: 0, total: 0 };
         const hasData = s.total > 0;
+        const processingTotal = s.pending_review + s.processing + s.pending_feedback;
         return `
             <div class="board-card ${hasData ? '' : 'board-card-empty'}" onclick="${hasData ? `viewDepartmentDocuments('${dept}')` : ''}">
                 <div class="board-card-header">
@@ -546,22 +808,27 @@ function renderDepartmentBoard() {
                     </div>
                 </div>
                 <div class="board-card-stats">
-                    <div class="board-stat-item pending">
-                        <div class="board-stat-number">${s.pending}</div>
-                        <div class="board-stat-label">待办理</div>
+                    <div class="board-stat-item pending_review">
+                        <div class="board-stat-number">${s.pending_review}</div>
+                        <div class="board-stat-label">待拟办</div>
                     </div>
-                    <div class="board-stat-item urgent">
-                        <div class="board-stat-number">${s.urgent}</div>
-                        <div class="board-stat-label">即将到期</div>
+                    <div class="board-stat-item processing">
+                        <div class="board-stat-number">${s.processing}</div>
+                        <div class="board-stat-label">办理中</div>
                     </div>
-                    <div class="board-stat-item overdue">
-                        <div class="board-stat-number">${s.overdue}</div>
-                        <div class="board-stat-label">已逾期</div>
+                    <div class="board-stat-item pending_feedback">
+                        <div class="board-stat-number">${s.pending_feedback}</div>
+                        <div class="board-stat-label">待反馈</div>
                     </div>
                     <div class="board-stat-item done">
                         <div class="board-stat-number">${s.done}</div>
                         <div class="board-stat-label">已办结</div>
                     </div>
+                </div>
+                <div class="board-card-urgent">
+                    ${s.urgent > 0 ? `<span class="board-urgent-tag urgent">即将到期 ${s.urgent}</span>` : ''}
+                    ${s.overdue > 0 ? `<span class="board-urgent-tag overdue">已逾期 ${s.overdue}</span>` : ''}
+                    ${s.urgent === 0 && s.overdue === 0 ? '<span class="board-urgent-tag normal">暂无超期</span>' : ''}
                 </div>
                 <div class="board-card-progress">
                     <div class="board-progress-bar">
@@ -615,18 +882,19 @@ function viewDepartmentDocuments(dept) {
 function filterDocuments(documents, tab, keyword, filter) {
     let filtered = documents;
 
-    if (tab === 'pending') {
-        filtered = filtered.filter(doc => {
-            const status = getDocumentStatus(doc);
-            return status !== 'done';
-        });
+    if (tab === 'pending_review') {
+        filtered = filtered.filter(doc => doc.flowStatus === FLOW_STATUS.PENDING_REVIEW);
+    } else if (tab === 'processing') {
+        filtered = filtered.filter(doc => doc.flowStatus === FLOW_STATUS.PROCESSING);
+    } else if (tab === 'pending_feedback') {
+        filtered = filtered.filter(doc => doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK);
+    } else if (tab === 'done') {
+        filtered = filtered.filter(doc => doc.flowStatus === FLOW_STATUS.DONE);
     } else if (tab === 'urgent') {
         filtered = filtered.filter(doc => {
-            const status = getDocumentStatus(doc);
-            return status === 'urgent' || status === 'overdue';
+            const deadlineStatus = getDeadlineStatus(doc);
+            return deadlineStatus === 'urgent' || deadlineStatus === 'overdue';
         });
-    } else if (tab === 'done') {
-        filtered = filtered.filter(doc => doc.completed);
     }
 
     if (keyword) {
@@ -634,13 +902,16 @@ function filterDocuments(documents, tab, keyword, filter) {
         filtered = filtered.filter(doc =>
             doc.title.toLowerCase().includes(kw) ||
             doc.fromUnit.toLowerCase().includes(kw) ||
-            doc.department.toLowerCase().includes(kw) ||
+            (doc.undertakingDepartment || doc.department || '').toLowerCase().includes(kw) ||
             doc.docNumber.toLowerCase().includes(kw)
         );
     }
 
     if (filter.department) {
-        filtered = filtered.filter(doc => doc.department === filter.department);
+        filtered = filtered.filter(doc => {
+            const dept = doc.undertakingDepartment || doc.department || '';
+            return dept === filter.department;
+        });
     }
 
     if (filter.urgency) {
@@ -663,9 +934,17 @@ function filterDocuments(documents, tab, keyword, filter) {
         filtered = filtered.filter(doc => doc.deadline <= filter.deadlineEnd);
     }
 
+    const statusOrder = {};
+    statusOrder[FLOW_STATUS.PENDING_REVIEW] = 0;
+    statusOrder[FLOW_STATUS.PROCESSING] = 1;
+    statusOrder[FLOW_STATUS.PENDING_FEEDBACK] = 2;
+    statusOrder[FLOW_STATUS.DONE] = 3;
+
     filtered.sort((a, b) => {
-        if (a.completed !== b.completed) {
-            return a.completed ? 1 : -1;
+        const statusA = statusOrder[a.flowStatus] !== undefined ? statusOrder[a.flowStatus] : 0;
+        const statusB = statusOrder[b.flowStatus] !== undefined ? statusOrder[b.flowStatus] : 0;
+        if (statusA !== statusB) {
+            return statusA - statusB;
         }
         return new Date(b.receiveDate) - new Date(a.receiveDate);
     });
@@ -695,8 +974,12 @@ function renderDocumentList() {
         if (hasFilter) {
             emptyText = '未找到匹配的收文记录，请调整筛选条件';
             showAddButton = false;
-        } else if (currentTab === 'pending') {
-            emptyText = '暂无待办理的收文';
+        } else if (currentTab === 'pending_review') {
+            emptyText = '暂无待拟办的收文';
+        } else if (currentTab === 'processing') {
+            emptyText = '暂无办理中的收文';
+        } else if (currentTab === 'pending_feedback') {
+            emptyText = '暂无待反馈的收文';
         } else if (currentTab === 'urgent') {
             emptyText = '暂无即将到期的收文';
         } else if (currentTab === 'done') {
@@ -716,35 +999,46 @@ function renderDocumentList() {
     }
 
     listEl.innerHTML = filtered.map(doc => {
-        const status = getDocumentStatus(doc);
-        const statusText = getStatusText(status);
+        const flowStatus = getDocumentStatus(doc);
+        const flowStatusText = getFlowStatusText(flowStatus);
+        const deadlineStatus = getDeadlineStatus(doc);
         const daysRemaining = getDaysRemaining(doc.deadline);
         const isSelected = selectedIds.includes(doc.id);
+        const isDone = flowStatus === FLOW_STATUS.DONE;
 
         let deadlineClass = '';
         let deadlineText = formatDate(doc.deadline);
-        if (!doc.completed) {
-            if (daysRemaining < 0) {
+        if (!isDone) {
+            if (deadlineStatus === 'overdue') {
                 deadlineClass = 'deadline-overdue';
                 deadlineText = `${formatDate(doc.deadline)}（已逾期${Math.abs(daysRemaining)}天）`;
-            } else if (daysRemaining <= 3) {
+            } else if (deadlineStatus === 'urgent') {
                 deadlineClass = 'deadline-urgent';
                 deadlineText = `${formatDate(doc.deadline)}（剩余${daysRemaining}天）`;
             }
         }
 
-        const actions = !doc.completed ? `
+        const undertakingDept = doc.undertakingDepartment || doc.department || '';
+
+        const actions = !isDone ? `
             <button class="action-btn view" onclick="viewDocument('${doc.id}')">查看</button>
             <button class="action-btn edit" onclick="editDocument('${doc.id}')">编辑</button>
-            <button class="action-btn complete" onclick="completeDocument('${doc.id}')">办结</button>
+            <button class="action-btn flow" onclick="openFlowModal('${doc.id}')">流转办理</button>
             <button class="action-btn delete" onclick="deleteDocument('${doc.id}')">删除</button>
         ` : `
             <button class="action-btn view" onclick="viewDocument('${doc.id}')">查看</button>
             <button class="action-btn delete" onclick="deleteDocument('${doc.id}')">删除</button>
         `;
 
+        const deadlineTag = !isDone && deadlineStatus !== 'normal' ? `
+            <span class="doc-tag deadline-${deadlineStatus}">${getDeadlineStatusText(deadlineStatus)}</span>
+        ` : '';
+
+        const cardClass = deadlineStatus === 'overdue' ? 'deadline-overdue-card' :
+                          deadlineStatus === 'urgent' ? 'deadline-urgent-card' : '';
+
         return `
-            <div class="document-card status-${status} ${isSelected ? 'selected' : ''}" onclick="viewDocument('${doc.id}')">
+            <div class="document-card flow-status-${flowStatus} ${cardClass} ${isSelected ? 'selected' : ''}" onclick="viewDocument('${doc.id}')">
                 <div class="doc-card-checkbox" onclick="event.stopPropagation(); toggleSelect('${doc.id}')">
                     <span class="card-checkbox ${isSelected ? 'checked' : ''}">${isSelected ? '✓' : ''}</span>
                 </div>
@@ -752,7 +1046,8 @@ function renderDocumentList() {
                     <div class="doc-title">${escapeHtml(doc.title)}</div>
                     <div class="doc-tags">
                         <span class="doc-tag urgency-${doc.urgency}">${doc.urgency}</span>
-                        <span class="doc-tag status-${statusText}">${statusText}</span>
+                        <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
+                        ${deadlineTag}
                     </div>
                 </div>
                 <div class="doc-info">
@@ -766,14 +1061,14 @@ function renderDocumentList() {
                     </div>
                     <div class="doc-info-item">
                         <span class="doc-info-label">承办科室</span>
-                        <span class="doc-info-value">${escapeHtml(doc.department)}</span>
+                        <span class="doc-info-value">${escapeHtml(undertakingDept)}</span>
                     </div>
                     <div class="doc-info-item">
                         <span class="doc-info-label">办理期限</span>
                         <span class="doc-info-value ${deadlineClass}">${deadlineText}</span>
                     </div>
                 </div>
-                ${renderLatestRecordSummary(doc)}
+                ${renderLatestFlowRecordSummary(doc)}
                 <div class="doc-actions" onclick="event.stopPropagation()">
                     ${actions}
                 </div>
@@ -828,20 +1123,24 @@ function updateBatchToolbar() {
     const batchCompleteBtn = document.getElementById('batchCompleteBtn');
 
     if (selectedIds.length > 0) {
-        toolbar.style.display = 'flex';
-        countEl.textContent = selectedIds.length;
+        if (toolbar) toolbar.style.display = 'flex';
+        if (countEl) countEl.textContent = selectedIds.length;
     } else {
-        toolbar.style.display = 'none';
+        if (toolbar) toolbar.style.display = 'none';
     }
 
     const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
-    selectAllCheckbox.checked = filtered.length > 0 && selectedIds.length === filtered.length;
+    if (selectAllCheckbox) {
+        selectAllCheckbox.checked = filtered.length > 0 && selectedIds.length === filtered.length;
+    }
 
-    const hasUncompleted = selectedIds.some(id => {
+    const hasFeedbackDocs = selectedIds.some(id => {
         const doc = documents.find(d => d.id === id);
-        return doc && !doc.completed;
+        return doc && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK;
     });
-    batchCompleteBtn.style.display = hasUncompleted ? 'inline-flex' : 'none';
+    if (batchCompleteBtn) {
+        batchCompleteBtn.style.display = hasFeedbackDocs ? 'inline-flex' : 'none';
+    }
 }
 
 function getSelectedDocuments() {
@@ -852,53 +1151,74 @@ function getSelectedDocuments() {
 function buildBatchPreviewList(containerId) {
     const selectedDocs = getSelectedDocuments();
     const container = document.getElementById(containerId);
-    container.innerHTML = selectedDocs.map(doc => `
-        <div class="batch-preview-item">${escapeHtml(doc.title)}</div>
-    `).join('');
+    if (container) {
+        container.innerHTML = selectedDocs.map(doc => `
+            <div class="batch-preview-item">${escapeHtml(doc.title)}</div>
+        `).join('');
+    }
 }
 
 function openBatchCompleteModal() {
     if (selectedIds.length === 0) return;
 
     const selectedDocs = getSelectedDocuments();
-    const uncompletedDocs = selectedDocs.filter(function(doc) { return !doc.completed; });
+    const feedbackDocs = selectedDocs.filter(function(doc) {
+        return doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK;
+    });
 
-    if (uncompletedDocs.length === 0) {
-        showToast('所选收文均已办结', 'info');
+    if (feedbackDocs.length === 0) {
+        showToast('只有待反馈状态的收文才能办结', 'info');
         return;
     }
 
     currentBatchAction = 'complete';
-    document.getElementById('batchConfirmTitle').textContent = '批量办结确认';
-    document.getElementById('batchConfirmMessage').innerHTML =
-        '确定要将选中的 <span>' + uncompletedDocs.length + '</span> 条收文标记为已办结吗？';
-    document.getElementById('batchConfirmBtn').className = 'btn btn-success';
+    const batchConfirmTitle = document.getElementById('batchConfirmTitle');
+    if (batchConfirmTitle) batchConfirmTitle.textContent = '批量办结确认';
+    const batchConfirmMessage = document.getElementById('batchConfirmMessage');
+    if (batchConfirmMessage) {
+        batchConfirmMessage.innerHTML =
+            '确定要将选中的 <span>' + feedbackDocs.length + '</span> 条待反馈收文标记为已办结吗？';
+    }
+    const batchConfirmBtn = document.getElementById('batchConfirmBtn');
+    if (batchConfirmBtn) batchConfirmBtn.className = 'btn btn-success';
 
-    document.getElementById('batchCompleteFields').style.display = 'block';
-    document.getElementById('batchCompleteRemark').value = '';
-    document.getElementById('batchCompleteHandler').value = '';
+    const completeFields = document.getElementById('batchCompleteFields');
+    if (completeFields) completeFields.style.display = 'block';
+    const remarkEl = document.getElementById('batchCompleteRemark');
+    if (remarkEl) remarkEl.value = '';
+    const handlerEl = document.getElementById('batchCompleteHandler');
+    if (handlerEl) handlerEl.value = '';
 
     buildBatchPreviewList('batchPreviewList');
-    document.getElementById('batchConfirmModal').classList.add('show');
+    const confirmModal = document.getElementById('batchConfirmModal');
+    if (confirmModal) confirmModal.classList.add('show');
 }
 
 function openBatchDeleteModal() {
     if (selectedIds.length === 0) return;
 
     currentBatchAction = 'delete';
-    document.getElementById('batchConfirmTitle').textContent = '批量删除确认';
-    document.getElementById('batchConfirmMessage').innerHTML =
-        '确定要删除选中的 <span>' + selectedIds.length + '</span> 条收文吗？此操作不可恢复。';
-    document.getElementById('batchConfirmBtn').className = 'btn btn-danger';
+    const batchConfirmTitle = document.getElementById('batchConfirmTitle');
+    if (batchConfirmTitle) batchConfirmTitle.textContent = '批量删除确认';
+    const batchConfirmMessage = document.getElementById('batchConfirmMessage');
+    if (batchConfirmMessage) {
+        batchConfirmMessage.innerHTML =
+            '确定要删除选中的 <span>' + selectedIds.length + '</span> 条收文吗？此操作不可恢复。';
+    }
+    const batchConfirmBtn = document.getElementById('batchConfirmBtn');
+    if (batchConfirmBtn) batchConfirmBtn.className = 'btn btn-danger';
 
-    document.getElementById('batchCompleteFields').style.display = 'none';
+    const completeFields = document.getElementById('batchCompleteFields');
+    if (completeFields) completeFields.style.display = 'none';
 
     buildBatchPreviewList('batchPreviewList');
-    document.getElementById('batchConfirmModal').classList.add('show');
+    const confirmModal = document.getElementById('batchConfirmModal');
+    if (confirmModal) confirmModal.classList.add('show');
 }
 
 function closeBatchConfirmModal() {
-    document.getElementById('batchConfirmModal').classList.remove('show');
+    const confirmModal = document.getElementById('batchConfirmModal');
+    if (confirmModal) confirmModal.classList.remove('show');
     currentBatchAction = null;
 }
 
@@ -911,31 +1231,36 @@ function executeBatchAction(e) {
     const documents = getDocuments();
 
     if (currentBatchAction === 'complete') {
-        const batchRemark = document.getElementById('batchCompleteRemark') ?
-            document.getElementById('batchCompleteRemark').value.trim() : '';
-        const batchHandler = document.getElementById('batchCompleteHandler') ?
-            document.getElementById('batchCompleteHandler').value.trim() : '';
+        const remarkEl = document.getElementById('batchCompleteRemark');
+        const batchRemark = remarkEl ? remarkEl.value.trim() : '';
+        const handlerEl = document.getElementById('batchCompleteHandler');
+        const batchHandler = handlerEl ? handlerEl.value.trim() : '';
 
         let count = 0;
         const now = new Date().toISOString();
         const updatedDocs = documents.map(function(doc) {
-            if (selectedIds.includes(doc.id) && !doc.completed) {
+            if (selectedIds.includes(doc.id) && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
                 count++;
-                const completionRecord = {
+                const flowRecord = {
                     id: generateId(),
-                    type: 'completion',
-                    content: batchRemark || '批量办结',
+                    action: FLOW_ACTION.COMPLETE,
+                    actionText: FLOW_ACTION_TEXT[FLOW_ACTION.COMPLETE] || '办结',
+                    fromStatus: doc.flowStatus,
+                    toStatus: FLOW_STATUS.DONE,
+                    opinion: batchRemark || '批量办结',
                     handler: batchHandler || '',
+                    department: doc.undertakingDepartment || doc.department || '',
                     createdAt: now
                 };
-                const records = doc.processingRecords || [];
-                records.push(completionRecord);
+                const flowRecords = doc.flowRecords || [];
+                flowRecords.push(flowRecord);
                 return {
                     ...doc,
+                    flowStatus: FLOW_STATUS.DONE,
                     completed: true,
                     completedAt: now,
                     completedRemark: batchRemark || '批量办结',
-                    processingRecords: records
+                    flowRecords: flowRecords
                 };
             }
             return doc;
@@ -947,6 +1272,27 @@ function executeBatchAction(e) {
         const filtered = documents.filter(function(doc) { return !selectedIds.includes(doc.id); });
         saveDocuments(filtered);
         showToast('成功删除 ' + count + ' 条收文', 'success');
+    } else if (currentBatchAction === 'department') {
+        const deptSelectEl = document.getElementById('batchDepartmentSelect');
+        const newDept = deptSelectEl ? deptSelectEl.value : '';
+        if (!newDept) {
+            showToast('请选择科室', 'error');
+            return;
+        }
+        let count = 0;
+        const updatedDocs = documents.map(function(doc) {
+            if (selectedIds.includes(doc.id)) {
+                count++;
+                return {
+                    ...doc,
+                    undertakingDepartment: newDept,
+                    department: newDept
+                };
+            }
+            return doc;
+        });
+        saveDocuments(updatedDocs);
+        showToast('成功修改 ' + count + ' 条收文的科室', 'success');
     }
 
     selectedIds = [];
@@ -1062,21 +1408,393 @@ function updateFilterActiveBadge() {
     }
 }
 
+function addFlowRecord(docId, action, opinion, handler, department, toStatus) {
+    const documents = getDocuments();
+    const index = documents.findIndex(function(d) { return d.id === docId; });
+    if (index === -1) {
+        return { success: false, message: '收文不存在' };
+    }
+
+    const doc = documents[index];
+    const fromStatus = doc.flowStatus;
+    const now = new Date().toISOString();
+    const actionText = FLOW_ACTION_TEXT[action] || action;
+
+    const newRecord = {
+        id: generateId(),
+        action: action,
+        actionText: actionText,
+        fromStatus: fromStatus,
+        toStatus: toStatus || fromStatus,
+        handler: handler || '',
+        opinion: opinion || '',
+        department: department || '',
+        createdAt: now
+    };
+
+    if (!doc.flowRecords) {
+        doc.flowRecords = [];
+    }
+    doc.flowRecords.push(newRecord);
+
+    if (toStatus) {
+        doc.flowStatus = toStatus;
+    }
+
+    if (toStatus === FLOW_STATUS.DONE) {
+        doc.completed = true;
+        doc.completedAt = now;
+        doc.completedRemark = opinion || '';
+    }
+
+    documents[index] = doc;
+    saveDocuments(documents);
+
+    return { success: true, doc: doc };
+}
+
+function getAvailableFlowActions(doc) {
+    const status = doc.flowStatus;
+    const actions = [];
+
+    if (status === FLOW_STATUS.PENDING_REVIEW) {
+        actions.push({
+            key: 'propose',
+            label: '拟办',
+            icon: '💡',
+            description: '指定拟办科室和处理意见',
+            toStatus: FLOW_STATUS.PROCESSING,
+            needsDepartment: true,
+            departmentLabel: '拟办科室'
+        });
+    }
+
+    if (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING) {
+        actions.push({
+            key: 'assign',
+            label: '交办',
+            icon: '📤',
+            description: '交办给承办科室办理',
+            toStatus: FLOW_STATUS.PROCESSING,
+            needsDepartment: true,
+            departmentLabel: '承办科室'
+        });
+    }
+
+    if (status === FLOW_STATUS.PROCESSING || status === FLOW_STATUS.PENDING_FEEDBACK) {
+        actions.push({
+            key: 'progress',
+            label: '进展更新',
+            icon: '🔄',
+            description: '记录办理进展，状态不变',
+            toStatus: null,
+            needsDepartment: false
+        });
+    }
+
+    if (status === FLOW_STATUS.PROCESSING) {
+        actions.push({
+            key: 'feedback',
+            label: '申请反馈',
+            icon: '📥',
+            description: '提交反馈，等待审核',
+            toStatus: FLOW_STATUS.PENDING_FEEDBACK,
+            needsDepartment: false
+        });
+    }
+
+    if (status === FLOW_STATUS.PENDING_FEEDBACK) {
+        actions.push({
+            key: 'complete',
+            label: '办结',
+            icon: '✅',
+            description: '审核通过，办结收文',
+            toStatus: FLOW_STATUS.DONE,
+            needsDepartment: false
+        });
+    }
+
+    return actions;
+}
+
+let currentFlowDocId = null;
+let currentFlowAction = null;
+
+function openFlowModal(docId) {
+    const documents = getDocuments();
+    const doc = documents.find(function(d) { return d.id === docId; });
+    if (!doc) return;
+
+    currentFlowDocId = docId;
+    currentFlowAction = null;
+
+    const actions = getAvailableFlowActions(doc);
+    const actionsHtml = actions.map(function(action) {
+        return `
+            <div class="flow-action-card" onclick="selectFlowAction('${action.key}')">
+                <div class="flow-action-icon">${action.icon}</div>
+                <div class="flow-action-info">
+                    <div class="flow-action-title">${action.label}</div>
+                    <div class="flow-action-desc">${action.description}</div>
+                </div>
+                <div class="flow-action-arrow">→</div>
+            </div>
+        `;
+    }).join('');
+
+    const actionListEl = document.getElementById('flowActionList');
+    const actionFormEl = document.getElementById('flowActionFormEl');
+    if (actionListEl) actionListEl.innerHTML = actionsHtml;
+    if (actionFormEl) actionFormEl.style.display = 'none';
+    if (actionListEl) actionListEl.style.display = 'block';
+
+    const flowModalTitle = document.getElementById('flowModalTitle');
+    if (flowModalTitle) {
+        flowModalTitle.textContent = '流转办理';
+    }
+
+    const flowModal = document.getElementById('flowModal');
+    if (flowModal) flowModal.classList.add('show');
+}
+
+function selectFlowAction(actionKey) {
+    const documents = getDocuments();
+    const doc = documents.find(function(d) { return d.id === currentFlowDocId; });
+    if (!doc) return;
+
+    const actions = getAvailableFlowActions(doc);
+    const action = actions.find(function(a) { return a.key === actionKey; });
+    if (!action) return;
+
+    currentFlowAction = action;
+
+    const listEl = document.getElementById('flowActionList');
+    const formEl = document.getElementById('flowActionFormEl');
+    if (listEl) listEl.style.display = 'none';
+    if (formEl) formEl.style.display = 'block';
+
+    const flowModalTitle = document.getElementById('flowModalTitle');
+    if (flowModalTitle) {
+        flowModalTitle.textContent = action.label;
+    }
+
+    const actionLabelEl = document.getElementById('flowActionLabel');
+    if (actionLabelEl) actionLabelEl.textContent = action.label;
+    const actionIconEl = document.getElementById('flowActionIcon');
+    if (actionIconEl) actionIconEl.textContent = action.icon;
+
+    const deptSection = document.getElementById('flowDepartmentSection');
+    if (deptSection) {
+        if (action.needsDepartment) {
+            deptSection.style.display = 'block';
+            const deptLabel = document.getElementById('flowDepartmentLabel');
+            if (deptLabel) {
+                deptLabel.textContent = action.departmentLabel || '科室';
+            }
+            const deptSelect = document.getElementById('flowDepartmentSelect');
+            if (deptSelect) {
+                deptSelect.value = doc.undertakingDepartment || doc.department || '';
+            }
+        } else {
+            deptSection.style.display = 'none';
+        }
+    }
+
+    const opinionEl = document.getElementById('flowOpinion');
+    if (opinionEl) opinionEl.value = '';
+    const handlerEl = document.getElementById('flowHandler');
+    if (handlerEl) handlerEl.value = '';
+
+    const coDeptSection = document.getElementById('flowCoDeptSection');
+    if (coDeptSection) {
+        if (action.needsDepartment) {
+            coDeptSection.style.display = 'block';
+            renderCoDepartmentCheckboxes(doc.coDepartments || []);
+        } else {
+            coDeptSection.style.display = 'none';
+        }
+    }
+}
+
+function renderCoDepartmentCheckboxes(selected) {
+    const container = document.getElementById('coDeptCheckboxes');
+    if (!container) return;
+
+    const html = DEPARTMENT_LIST.map(function(dept) {
+        const isChecked = selected.includes(dept) ? 'checked' : '';
+        return `
+            <label class="co-dept-checkbox-label">
+                <input type="checkbox" class="co-dept-checkbox" value="${dept}" ${isChecked}>
+                <span class="co-dept-text">${dept}</span>
+            </label>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function getSelectedCoDepartments() {
+    const checkboxes = document.querySelectorAll('#coDeptCheckboxes .co-dept-checkbox:checked');
+    const selected = [];
+    checkboxes.forEach(function(cb) {
+        selected.push(cb.value);
+    });
+    return selected;
+}
+
+function backToFlowActionList() {
+    const actionList = document.getElementById('flowActionList');
+    const actionForm = document.getElementById('flowActionFormEl');
+    if (actionList) actionList.style.display = 'block';
+    if (actionForm) actionForm.style.display = 'none';
+    currentFlowAction = null;
+}
+
+function closeFlowModal() {
+    const flowModal = document.getElementById('flowModal');
+    if (flowModal) flowModal.classList.remove('show');
+    currentFlowDocId = null;
+    currentFlowAction = null;
+    backToFlowActionList();
+}
+
+function executeFlowAction(e) {
+    if (e) {
+        e.preventDefault();
+    }
+
+    if (!currentFlowDocId || !currentFlowAction) {
+        showToast('请选择流转操作', 'error');
+        return;
+    }
+
+    const opinionEl = document.getElementById('flowOpinion');
+    const opinion = opinionEl ? opinionEl.value.trim() : '';
+    const handlerEl = document.getElementById('flowHandler');
+    const handler = handlerEl ? handlerEl.value.trim() : '';
+    let department = '';
+
+    if (currentFlowAction.needsDepartment) {
+        const deptSelectEl = document.getElementById('flowDepartmentSelect');
+        department = deptSelectEl ? deptSelectEl.value : '';
+        if (!department) {
+            showToast('请选择科室', 'error');
+            return;
+        }
+    }
+
+    if (currentFlowAction.toStatus === FLOW_STATUS.DONE && !opinion) {
+        showToast('请输入办结说明', 'error');
+        return;
+    }
+
+    const actionMap = {
+        'propose': FLOW_ACTION.PROPOSE,
+        'assign': FLOW_ACTION.ASSIGN,
+        'progress': FLOW_ACTION.PROGRESS,
+        'feedback': FLOW_ACTION.FEEDBACK,
+        'complete': FLOW_ACTION.COMPLETE
+    };
+
+    const flowActionType = actionMap[currentFlowAction.key] || currentFlowAction.key;
+
+    const result = addFlowRecord(
+        currentFlowDocId,
+        flowActionType,
+        opinion,
+        handler,
+        department,
+        currentFlowAction.toStatus
+    );
+
+    if (result.success) {
+        if (currentFlowAction.needsDepartment) {
+            const documents = getDocuments();
+            const idx = documents.findIndex(function(d) { return d.id === currentFlowDocId; });
+            if (idx !== -1) {
+                const doc = documents[idx];
+                if (currentFlowAction.key === 'propose') {
+                    doc.proposedDepartment = department;
+                }
+                if (currentFlowAction.key === 'assign') {
+                    doc.undertakingDepartment = department;
+                    doc.department = department;
+                }
+                doc.coDepartments = getSelectedCoDepartments();
+                documents[idx] = doc;
+                saveDocuments(documents);
+            }
+        }
+
+        showToast('操作成功', 'success');
+        closeFlowModal();
+        updateStats();
+        renderDocumentList();
+
+        const detailModal = document.getElementById('detailModal');
+        if (detailModal && detailModal.classList.contains('show')) {
+            viewDocument(currentFlowDocId);
+        }
+    } else {
+        showToast(result.message || '操作失败', 'error');
+    }
+}
+
 function openAddModal() {
-    document.getElementById('modalTitle').textContent = '新增收文';
-    document.getElementById('documentId').value = '';
-    document.getElementById('documentForm').reset();
-    document.getElementById('receiveDate').value = formatDateInput(new Date());
+    const modalTitle = document.getElementById('modalTitle');
+    if (modalTitle) modalTitle.textContent = '新增收文';
+    const documentId = document.getElementById('documentId');
+    if (documentId) documentId.value = '';
+    const documentForm = document.getElementById('documentForm');
+    if (documentForm) documentForm.reset();
+    const receiveDateEl = document.getElementById('receiveDate');
+    if (receiveDateEl) receiveDateEl.value = formatDateInput(new Date());
 
     const defaultDeadline = new Date();
     defaultDeadline.setDate(defaultDeadline.getDate() + 7);
-    document.getElementById('deadline').value = formatDateInput(defaultDeadline);
+    const deadlineEl = document.getElementById('deadline');
+    if (deadlineEl) deadlineEl.value = formatDateInput(defaultDeadline);
 
-    document.getElementById('templateSection').style.display = 'block';
+    const templateSection = document.getElementById('templateSection');
+    if (templateSection) templateSection.style.display = 'block';
     renderTemplateSelect();
-    document.getElementById('deleteTemplateBtn').style.display = 'none';
+    const deleteTemplateBtn = document.getElementById('deleteTemplateBtn');
+    if (deleteTemplateBtn) deleteTemplateBtn.style.display = 'none';
 
-    document.getElementById('documentModal').classList.add('show');
+    const proposedDeptEl = document.getElementById('proposedDepartment');
+    if (proposedDeptEl) proposedDeptEl.value = '';
+    const undertakingDeptEl = document.getElementById('undertakingDepartment');
+    if (undertakingDeptEl) undertakingDeptEl.value = '';
+    renderCoDeptCheckboxesAdd([]);
+
+    const documentModal = document.getElementById('documentModal');
+    if (documentModal) documentModal.classList.add('show');
+}
+
+function renderCoDeptCheckboxesAdd(selected) {
+    const container = document.getElementById('addCoDeptCheckboxes');
+    if (!container) return;
+
+    const html = DEPARTMENT_LIST.map(function(dept) {
+        const isChecked = selected.includes(dept) ? 'checked' : '';
+        return `
+            <label class="co-dept-checkbox-label">
+                <input type="checkbox" class="add-co-dept-checkbox" value="${dept}" ${isChecked}>
+                <span class="co-dept-text">${dept}</span>
+            </label>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function getAddCoDepartments() {
+    const checkboxes = document.querySelectorAll('.add-co-dept-checkbox:checked');
+    const selected = [];
+    checkboxes.forEach(function(cb) {
+        selected.push(cb.value);
+    });
+    return selected;
 }
 
 function formatDateInput(date) {
@@ -1087,7 +1805,8 @@ function formatDateInput(date) {
 }
 
 function closeModal() {
-    document.getElementById('documentModal').classList.remove('show');
+    const documentModal = document.getElementById('documentModal');
+    if (documentModal) documentModal.classList.remove('show');
 }
 
 function editDocument(id) {
@@ -1095,39 +1814,86 @@ function editDocument(id) {
     const doc = documents.find(d => d.id === id);
     if (!doc) return;
 
-    document.getElementById('modalTitle').textContent = '编辑收文';
-    document.getElementById('documentId').value = doc.id;
-    document.getElementById('fromUnit').value = doc.fromUnit;
-    document.getElementById('docNumber').value = doc.docNumber;
-    document.getElementById('title').value = doc.title;
-    document.getElementById('receiveDate').value = doc.receiveDate;
-    document.getElementById('urgency').value = doc.urgency;
-    document.getElementById('department').value = doc.department;
-    document.getElementById('deadline').value = doc.deadline;
-    document.getElementById('remark').value = doc.remark || '';
+    const modalTitle = document.getElementById('modalTitle');
+    if (modalTitle) modalTitle.textContent = '编辑收文';
+    const documentIdEl = document.getElementById('documentId');
+    if (documentIdEl) documentIdEl.value = doc.id;
+    const fromUnitEl = document.getElementById('fromUnit');
+    if (fromUnitEl) fromUnitEl.value = doc.fromUnit;
+    const docNumberEl = document.getElementById('docNumber');
+    if (docNumberEl) docNumberEl.value = doc.docNumber;
+    const titleEl = document.getElementById('title');
+    if (titleEl) titleEl.value = doc.title;
+    const receiveDateEl = document.getElementById('receiveDate');
+    if (receiveDateEl) receiveDateEl.value = doc.receiveDate;
+    const urgencyEl = document.getElementById('urgency');
+    if (urgencyEl) urgencyEl.value = doc.urgency;
 
-    document.getElementById('templateSection').style.display = 'none';
+    const deptEl = document.getElementById('department');
+    if (deptEl) deptEl.value = doc.department || '';
 
-    document.getElementById('documentModal').classList.add('show');
+    const proposedDeptEl = document.getElementById('proposedDepartment');
+    if (proposedDeptEl) proposedDeptEl.value = doc.proposedDepartment || '';
+
+    const undertakingDeptEl = document.getElementById('undertakingDepartment');
+    if (undertakingDeptEl) undertakingDeptEl.value = doc.undertakingDepartment || doc.department || '';
+
+    renderCoDeptCheckboxesAdd(doc.coDepartments || []);
+
+    const deadlineEl = document.getElementById('deadline');
+    if (deadlineEl) deadlineEl.value = doc.deadline;
+    const remarkEl = document.getElementById('remark');
+    if (remarkEl) remarkEl.value = doc.remark || '';
+
+    const templateSection = document.getElementById('templateSection');
+    if (templateSection) templateSection.style.display = 'none';
+
+    const documentModal = document.getElementById('documentModal');
+    if (documentModal) documentModal.classList.add('show');
 }
 
 function saveDocument(e) {
     e.preventDefault();
 
-    const id = document.getElementById('documentId').value;
+    const idEl = document.getElementById('documentId');
+    const id = idEl ? idEl.value : '';
+    const deptEl = document.getElementById('department');
+    const department = deptEl ? deptEl.value : '';
+
+    const proposedDeptEl = document.getElementById('proposedDepartment');
+    const proposedDepartment = proposedDeptEl ? proposedDeptEl.value : '';
+
+    const undertakingDeptEl = document.getElementById('undertakingDepartment');
+    const undertakingDepartment = undertakingDeptEl ? undertakingDeptEl.value : department;
+
+    const coDepartments = getAddCoDepartments();
+
+    const fromUnitEl = document.getElementById('fromUnit');
+    const docNumberEl = document.getElementById('docNumber');
+    const titleEl = document.getElementById('title');
+    const receiveDateEl = document.getElementById('receiveDate');
+    const urgencyEl = document.getElementById('urgency');
+    const deadlineEl = document.getElementById('deadline');
+    const remarkEl = document.getElementById('remark');
+
     const docData = {
-        fromUnit: document.getElementById('fromUnit').value.trim(),
-        docNumber: document.getElementById('docNumber').value.trim(),
-        title: document.getElementById('title').value.trim(),
-        receiveDate: document.getElementById('receiveDate').value,
-        urgency: document.getElementById('urgency').value,
-        department: document.getElementById('department').value,
-        deadline: document.getElementById('deadline').value,
-        remark: document.getElementById('remark').value.trim()
+        fromUnit: fromUnitEl ? fromUnitEl.value.trim() : '',
+        docNumber: docNumberEl ? docNumberEl.value.trim() : '',
+        title: titleEl ? titleEl.value.trim() : '',
+        receiveDate: receiveDateEl ? receiveDateEl.value : '',
+        urgency: urgencyEl ? urgencyEl.value : '',
+        department: undertakingDepartment || department,
+        proposedDepartment: proposedDepartment,
+        undertakingDepartment: undertakingDepartment || department,
+        coDepartments: coDepartments,
+        deadline: deadlineEl ? deadlineEl.value : '',
+        remark: remarkEl ? remarkEl.value.trim() : ''
     };
 
+    const mainDept = undertakingDepartment || department;
+
     if (!docData.fromUnit || !docData.docNumber || !docData.title ||
-        !docData.receiveDate || !docData.urgency || !docData.department || !docData.deadline) {
+        !docData.receiveDate || !docData.urgency || !mainDept || !docData.deadline) {
         showToast('请填写所有必填项', 'error');
         return;
     }
@@ -1141,14 +1907,29 @@ function saveDocument(e) {
             showToast('收文更新成功', 'success');
         }
     } else {
+        const now = new Date().toISOString();
         const newDoc = {
             id: generateId(),
             ...docData,
+            flowStatus: FLOW_STATUS.PENDING_REVIEW,
             completed: false,
             completedAt: null,
             completedRemark: '',
             processingRecords: [],
-            createdAt: new Date().toISOString()
+            flowRecords: [
+                {
+                    id: generateId(),
+                    action: FLOW_ACTION.CREATE,
+                    actionText: FLOW_ACTION_TEXT[FLOW_ACTION.CREATE] || '收文登记',
+                    fromStatus: null,
+                    toStatus: FLOW_STATUS.PENDING_REVIEW,
+                    handler: '',
+                    opinion: '收文登记',
+                    department: mainDept,
+                    createdAt: now
+                }
+            ],
+            createdAt: now
         };
         documents.unshift(newDoc);
         showToast('收文添加成功', 'success');
@@ -1310,18 +2091,24 @@ function viewDocument(id) {
     const doc = documents.find(d => d.id === id);
     if (!doc) return;
 
-    const status = getDocumentStatus(doc);
-    const statusText = getStatusText(status);
+    const flowStatus = getDocumentStatus(doc);
+    const flowStatusText = getFlowStatusText(flowStatus);
+    const deadlineStatus = getDeadlineStatus(doc);
     const daysRemaining = getDaysRemaining(doc.deadline);
+    const isDone = flowStatus === FLOW_STATUS.DONE;
+    const undertakingDept = doc.undertakingDepartment || doc.department || '';
 
     let deadlineText = formatDate(doc.deadline);
-    if (!doc.completed) {
-        if (daysRemaining < 0) {
+    if (!isDone) {
+        if (deadlineStatus === 'overdue') {
             deadlineText = `${formatDate(doc.deadline)}（已逾期${Math.abs(daysRemaining)}天）`;
         } else {
             deadlineText = `${formatDate(doc.deadline)}（剩余${daysRemaining}天）`;
         }
     }
+
+    const coDeptsText = (doc.coDepartments && doc.coDepartments.length > 0) ?
+        doc.coDepartments.join('、') : '无';
 
     const detailContent = document.getElementById('detailContent');
     detailContent.innerHTML = `
@@ -1348,20 +2135,30 @@ function viewDocument(id) {
             </span>
         </div>
         <div class="detail-item">
+            <span class="detail-label">流转状态</span>
+            <span class="detail-value">
+                <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
+                ${!isDone && deadlineStatus !== 'normal' ?
+                    `<span class="doc-tag deadline-${deadlineStatus}">${getDeadlineStatusText(deadlineStatus)}</span>` : ''}
+            </span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">拟办科室</span>
+            <span class="detail-value">${escapeHtml(doc.proposedDepartment) || '—'}</span>
+        </div>
+        <div class="detail-item">
             <span class="detail-label">承办科室</span>
-            <span class="detail-value">${escapeHtml(doc.department)}</span>
+            <span class="detail-value">${escapeHtml(undertakingDept) || '—'}</span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">协办科室</span>
+            <span class="detail-value">${escapeHtml(coDeptsText)}</span>
         </div>
         <div class="detail-item">
             <span class="detail-label">办理期限</span>
             <span class="detail-value">${deadlineText}</span>
         </div>
-        <div class="detail-item">
-            <span class="detail-label">状态</span>
-            <span class="detail-value">
-                <span class="doc-tag status-${statusText}">${statusText}</span>
-            </span>
-        </div>
-        ${doc.completed ? `
+        ${isDone ? `
         <div class="detail-item">
             <span class="detail-label">办结时间</span>
             <span class="detail-value">${formatDateTime(doc.completedAt)}</span>
@@ -1375,21 +2172,21 @@ function viewDocument(id) {
         ` : ''}
         <div class="detail-section">
             <div class="detail-section-header">
-                <span class="detail-section-title">📝 办理记录</span>
-                <span class="detail-section-count">共 ${(doc.processingRecords || []).length} 条</span>
+                <span class="detail-section-title">🔄 流转时间线</span>
+                <span class="detail-section-count">共 ${(doc.flowRecords || []).length} 条</span>
             </div>
-            ${renderProcessingRecords(doc)}
+            ${renderFlowTimeline(doc)}
         </div>
     `;
 
     const detailActions = document.getElementById('detailActions');
-    if (!doc.completed) {
+    if (!isDone) {
         detailActions.innerHTML = `
             <button class="btn btn-default" onclick="closeDetailModal()">关闭</button>
             <button class="btn btn-danger" onclick="deleteDocument('${doc.id}'); closeDetailModal();">删除</button>
             <button class="btn btn-primary" onclick="editDocument('${doc.id}'); closeDetailModal();">编辑</button>
             <button class="btn btn-info" onclick="openAddRecordModal('${doc.id}')">追加进展</button>
-            <button class="btn btn-success" onclick="openCompleteModal('${doc.id}')">标记办结</button>
+            <button class="btn btn-success" onclick="openFlowModal('${doc.id}')">流转办理</button>
         `;
     } else {
         detailActions.innerHTML = `
@@ -1694,7 +2491,9 @@ function confirmImport() {
     }
 
     const documents = getDocuments();
+    const now = new Date().toISOString();
     const newDocs = importValidData.map(function(item) {
+        const dept = item.data.undertakingDepartment || item.data.department || '';
         return {
             id: generateId(),
             fromUnit: item.data.fromUnit,
@@ -1702,14 +2501,31 @@ function confirmImport() {
             title: item.data.title,
             receiveDate: item.data.receiveDate,
             urgency: item.data.urgency,
-            department: item.data.department,
+            department: dept,
+            proposedDepartment: item.data.proposedDepartment || '',
+            undertakingDepartment: dept,
+            coDepartments: item.data.coDepartments || [],
             deadline: item.data.deadline,
             remark: item.data.remark || '',
+            flowStatus: FLOW_STATUS.PENDING_REVIEW,
             completed: false,
             completedAt: null,
             completedRemark: '',
             processingRecords: [],
-            createdAt: new Date().toISOString()
+            flowRecords: [
+                {
+                    id: generateId(),
+                    action: FLOW_ACTION.CREATE,
+                    actionText: '收文登记',
+                    fromStatus: null,
+                    toStatus: FLOW_STATUS.PENDING_REVIEW,
+                    handler: '',
+                    opinion: '收文登记',
+                    department: dept,
+                    createdAt: now
+                }
+            ],
+            createdAt: now
         };
     });
 
@@ -1773,6 +2589,10 @@ const FIELD_NAME_MAP = {
     receiveDate: '收文日期',
     urgency: '紧急程度',
     department: '承办科室',
+    proposedDepartment: '拟办科室',
+    undertakingDepartment: '承办科室',
+    coDepartments: '协办科室',
+    flowStatus: '流转状态',
     deadline: '办理期限',
     remark: '备注',
     completed: '是否办结',
@@ -1782,7 +2602,8 @@ const FIELD_NAME_MAP = {
 
 const CSV_EXPORT_FIELDS = [
     'fromUnit', 'docNumber', 'title', 'receiveDate', 'urgency',
-    'department', 'deadline', 'remark', 'completed', 'completedAt', 'createdAt'
+    'proposedDepartment', 'undertakingDepartment', 'coDepartments',
+    'flowStatus', 'deadline', 'remark', 'completed', 'completedAt', 'createdAt'
 ];
 
 function getExportFileName(prefix, extension) {
@@ -1838,6 +2659,10 @@ function exportFilteredCsv() {
             let value = doc[field];
             if (field === 'completed') {
                 value = value ? '是' : '否';
+            } else if (field === 'flowStatus') {
+                value = getFlowStatusText(value);
+            } else if (field === 'coDepartments') {
+                value = (value || []).join('、');
             }
             if (value === undefined || value === null) {
                 value = '';
@@ -2311,8 +3136,9 @@ function init() {
             closeRestoreModal();
             closeExportMenu();
             closeAddRecordModal();
-            closeCompleteModal();
+            if (typeof closeCompleteModal === 'function') closeCompleteModal();
             closeSaveTemplateModal();
+            closeFlowModal();
         }
     });
 

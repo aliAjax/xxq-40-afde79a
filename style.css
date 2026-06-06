@@ -2428,3 +2428,562 @@ body {
         justify-content: center;
     }
 }
+
+/* ============ 流转办理模块样式 ============ */
+
+/* 1. 流转状态标签样式 */
+.doc-tag.flow-status-tag-pending_review {
+    background: #f5f5f5;
+    color: #8c8c8c;
+    border: 1px solid #d9d9d9;
+}
+
+.doc-tag.flow-status-tag-processing {
+    background: #e6f7ff;
+    color: #1890ff;
+    border: 1px solid #91d5ff;
+}
+
+.doc-tag.flow-status-tag-pending_feedback {
+    background: #fff7e6;
+    color: #fa8c16;
+    border: 1px solid #ffd591;
+}
+
+.doc-tag.flow-status-tag-done {
+    background: #f6ffed;
+    color: #52c41a;
+    border: 1px solid #b7eb8f;
+}
+
+/* 2. 期限提醒标签样式 */
+.doc-tag.deadline-urgent {
+    background: #fff7e6;
+    color: #fa8c16;
+    border: 1px solid #ffd591;
+    animation: pulse-urgent 2s ease-in-out infinite;
+}
+
+.doc-tag.deadline-overdue {
+    background: #fff1f0;
+    color: #ff4d4f;
+    border: 1px solid #ffa39e;
+    animation: pulse-overdue 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-urgent {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(250, 140, 22, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(250, 140, 22, 0.1);
+    }
+}
+
+@keyframes pulse-overdue {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(255, 77, 79, 0.1);
+    }
+}
+
+/* 3. 列表卡片状态边框 */
+.document-card.flow-status-pending_review {
+    border-left-color: #8c8c8c;
+}
+
+.document-card.flow-status-processing {
+    border-left-color: #1890ff;
+}
+
+.document-card.flow-status-pending_feedback {
+    border-left-color: #fa8c16;
+}
+
+.document-card.flow-status-done {
+    border-left-color: #52c41a;
+    opacity: 0.85;
+}
+
+/* 4. 逾期/即将到期卡片高亮 */
+.document-card.deadline-urgent-card {
+    background: linear-gradient(90deg, #fffbe6 0%, #fff 10%);
+    box-shadow: 0 2px 8px rgba(250, 140, 22, 0.08);
+}
+
+.document-card.deadline-urgent-card:hover {
+    box-shadow: 0 4px 16px rgba(250, 140, 22, 0.15);
+}
+
+.document-card.deadline-overdue-card {
+    background: linear-gradient(90deg, #fff1f0 0%, #fff 10%);
+    box-shadow: 0 2px 8px rgba(255, 77, 79, 0.08);
+}
+
+.document-card.deadline-overdue-card:hover {
+    box-shadow: 0 4px 16px rgba(255, 77, 79, 0.15);
+}
+
+/* 5. "流转办理"操作按钮 */
+.action-btn.flow {
+    background: #f9f0ff;
+    color: #722ed1;
+}
+
+.action-btn.flow:hover {
+    background: #efdbff;
+    color: #531dab;
+}
+
+/* 6. 流转时间线样式 */
+.flow-timeline {
+    position: relative;
+    padding: 8px 0;
+}
+
+.flow-timeline-item {
+    display: flex;
+    gap: 16px;
+    position: relative;
+}
+
+.flow-timeline-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    z-index: 1;
+    background: #f0f0f0;
+    color: #8c8c8c;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.flow-timeline-item.flow-status-pending_review .flow-timeline-dot {
+    background: #f5f5f5;
+    color: #8c8c8c;
+}
+
+.flow-timeline-item.flow-status-processing .flow-timeline-dot {
+    background: #e6f7ff;
+    color: #1890ff;
+}
+
+.flow-timeline-item.flow-status-pending_feedback .flow-timeline-dot {
+    background: #fff7e6;
+    color: #fa8c16;
+}
+
+.flow-timeline-item.flow-complete .flow-timeline-dot {
+    background: #f6ffed;
+    color: #52c41a;
+    box-shadow: 0 2px 8px rgba(82, 196, 26, 0.2);
+}
+
+.flow-timeline-line {
+    position: absolute;
+    left: 17px;
+    top: 36px;
+    bottom: -4px;
+    width: 2px;
+    background: #e8e8e8;
+}
+
+.flow-timeline-item.flow-last .flow-timeline-line {
+    display: none;
+}
+
+.flow-timeline-content {
+    flex: 1;
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border: 1px solid #f0f0f0;
+    transition: all 0.2s;
+}
+
+.flow-timeline-item:hover .flow-timeline-content {
+    background: #f5f5f5;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.flow-timeline-item.flow-complete .flow-timeline-content {
+    background: #f6ffed;
+    border-color: #d9f7be;
+}
+
+.flow-timeline-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.flow-action-tag {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #e6f7ff;
+    color: #1890ff;
+}
+
+.flow-timeline-item.flow-complete .flow-action-tag {
+    background: #d9f7be;
+    color: #389e0d;
+}
+
+.flow-timeline-item.flow-status-pending_feedback .flow-action-tag {
+    background: #fff7e6;
+    color: #fa8c16;
+}
+
+.flow-status-change {
+    font-size: 12px;
+    color: #999;
+    flex: 1;
+}
+
+.flow-time {
+    font-size: 12px;
+    color: #999;
+    flex-shrink: 0;
+}
+
+.flow-opinion {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-bottom: 8px;
+}
+
+.flow-meta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-top: 8px;
+    border-top: 1px dashed #e8e8e8;
+    font-size: 12px;
+    color: #999;
+}
+
+.flow-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* 7. 流转办理模态框内的操作卡片 */
+.flow-action-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 12px;
+}
+
+.flow-action-card:hover {
+    background: #f5f5f5;
+    border-color: #d9d9d9;
+    transform: translateX(4px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.flow-action-card:active {
+    transform: translateX(2px);
+    background: #f0f0f0;
+}
+
+.flow-action-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    background: #e6f7ff;
+    color: #1890ff;
+    flex-shrink: 0;
+}
+
+.flow-action-card:nth-child(1) .flow-action-icon {
+    background: #e6f7ff;
+    color: #1890ff;
+}
+
+.flow-action-card:nth-child(2) .flow-action-icon {
+    background: #f9f0ff;
+    color: #722ed1;
+}
+
+.flow-action-card:nth-child(3) .flow-action-icon {
+    background: #fff7e6;
+    color: #fa8c16;
+}
+
+.flow-action-card:nth-child(4) .flow-action-icon {
+    background: #f6ffed;
+    color: #52c41a;
+}
+
+.flow-action-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.flow-action-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.flow-action-desc {
+    font-size: 12px;
+    color: #999;
+    line-height: 1.5;
+}
+
+.flow-action-arrow {
+    font-size: 16px;
+    color: #ccc;
+    flex-shrink: 0;
+    transition: transform 0.2s, color 0.2s;
+}
+
+.flow-action-card:hover .flow-action-arrow {
+    color: #999;
+    transform: translateX(4px);
+}
+
+/* 8. 协办科室复选框组 */
+.co-dept-checkbox-group {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.co-dept-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 13px;
+    color: #333;
+    user-select: none;
+}
+
+.co-dept-checkbox-label:hover {
+    background: #f5f5f5;
+    border-color: #d9d9d9;
+}
+
+.co-dept-checkbox-label.checked {
+    background: #e6f7ff;
+    border-color: #91d5ff;
+    color: #1890ff;
+    font-weight: 500;
+}
+
+.co-dept-checkbox {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.co-dept-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 9. 科室看板相关新样式 */
+.board-stat-item.pending_review .board-stat-number {
+    color: #8c8c8c;
+}
+
+.board-stat-item.processing .board-stat-number {
+    color: #1890ff;
+}
+
+.board-stat-item.pending_feedback .board-stat-number {
+    color: #fa8c16;
+}
+
+.board-card-urgent {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.board-urgent-tag {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.board-urgent-tag.urgent {
+    background: #fff7e6;
+    color: #fa8c16;
+    border: 1px solid #ffd591;
+}
+
+.board-urgent-tag.overdue {
+    background: #fff1f0;
+    color: #ff4d4f;
+    border: 1px solid #ffa39e;
+}
+
+.board-urgent-tag.normal {
+    background: #f6ffed;
+    color: #52c41a;
+    border: 1px solid #b7eb8f;
+}
+
+/* 10. 统计卡片新增颜色 */
+.stat-card.pending {
+    border-left-color: #8c8c8c;
+}
+
+.stat-card.pending .stat-icon {
+    background: #f5f5f5;
+}
+
+.stat-card.processing {
+    border-left-color: #1890ff;
+}
+
+.stat-card.processing .stat-icon {
+    background: #e6f7ff;
+}
+
+.stat-card.feedback {
+    border-left-color: #fa8c16;
+}
+
+.stat-card.feedback .stat-icon {
+    background: #fff7e6;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .flow-timeline-item {
+        gap: 12px;
+    }
+
+    .flow-timeline-dot {
+        width: 30px;
+        height: 30px;
+        font-size: 14px;
+    }
+
+    .flow-timeline-line {
+        left: 14px;
+        top: 30px;
+    }
+
+    .flow-timeline-content {
+        padding: 12px;
+        margin-bottom: 12px;
+    }
+
+    .flow-timeline-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .flow-status-change {
+        order: 2;
+    }
+
+    .flow-time {
+        order: 3;
+    }
+
+    .flow-meta {
+        gap: 10px;
+        font-size: 11px;
+    }
+
+    .flow-action-card {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .flow-action-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+    }
+
+    .flow-action-title {
+        font-size: 14px;
+    }
+
+    .flow-action-desc {
+        font-size: 11px;
+    }
+
+    .co-dept-checkbox-group {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .co-dept-checkbox-label {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .board-card-urgent {
+        gap: 4px;
+    }
+
+    .board-urgent-tag {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .co-dept-checkbox-group {
+        grid-template-columns: 1fr;
+    }
+
+    .doc-tags {
+        flex-wrap: wrap;
+    }
+
+    .doc-tag {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+}

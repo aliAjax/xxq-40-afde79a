@@ -20,17 +20,24 @@
 
         <div class="stats-section">
             <div class="stat-card pending">
-                <div class="stat-icon">⏳</div>
+                <div class="stat-icon">📋</div>
                 <div class="stat-info">
                     <div class="stat-number" id="pendingCount">0</div>
-                    <div class="stat-label">待办理</div>
+                    <div class="stat-label">待拟办</div>
                 </div>
             </div>
-            <div class="stat-card urgent">
-                <div class="stat-icon">⚠️</div>
+            <div class="stat-card processing">
+                <div class="stat-icon">🔄</div>
                 <div class="stat-info">
-                    <div class="stat-number" id="urgentCount">0</div>
-                    <div class="stat-label">即将到期</div>
+                    <div class="stat-number" id="processingCount">0</div>
+                    <div class="stat-label">办理中</div>
+                </div>
+            </div>
+            <div class="stat-card feedback">
+                <div class="stat-icon">📥</div>
+                <div class="stat-info">
+                    <div class="stat-number" id="feedbackCount">0</div>
+                    <div class="stat-label">待反馈</div>
                 </div>
             </div>
             <div class="stat-card done">
@@ -38,6 +45,13 @@
                 <div class="stat-info">
                     <div class="stat-number" id="doneCount">0</div>
                     <div class="stat-label">已办结</div>
+                </div>
+            </div>
+            <div class="stat-card urgent">
+                <div class="stat-icon">⚠️</div>
+                <div class="stat-info">
+                    <div class="stat-number" id="urgentCount">0</div>
+                    <div class="stat-label">即将到期</div>
                 </div>
             </div>
             <div class="stat-card total">
@@ -161,8 +175,14 @@
         </div>
 
         <div class="tabs" id="listTabs">
-            <div class="tab active" data-tab="pending" onclick="switchTab('pending')">
-                待办理 <span class="tab-badge" id="tabPendingBadge">0</span>
+            <div class="tab active" data-tab="pending_review" onclick="switchTab('pending_review')">
+                待拟办 <span class="tab-badge" id="tabPendingReviewBadge">0</span>
+            </div>
+            <div class="tab" data-tab="processing" onclick="switchTab('processing')">
+                办理中 <span class="tab-badge" id="tabProcessingBadge">0</span>
+            </div>
+            <div class="tab" data-tab="pending_feedback" onclick="switchTab('pending_feedback')">
+                待反馈 <span class="tab-badge" id="tabFeedbackBadge">0</span>
             </div>
             <div class="tab" data-tab="urgent" onclick="switchTab('urgent')">
                 即将到期 <span class="tab-badge urgent" id="tabUrgentBadge">0</span>
@@ -184,7 +204,9 @@
                 <div class="board-subtitle">点击科室卡片可查看该科室的全部收文</div>
             </div>
             <div class="board-legend">
-                <div class="legend-item"><span class="legend-dot pending"></span>待办理</div>
+                <div class="legend-item"><span class="legend-dot pending"></span>待拟办</div>
+                <div class="legend-item"><span class="legend-dot processing"></span>办理中</div>
+                <div class="legend-item"><span class="legend-dot feedback"></span>待反馈</div>
                 <div class="legend-item"><span class="legend-dot urgent"></span>即将到期</div>
                 <div class="legend-item"><span class="legend-dot overdue"></span>已逾期</div>
                 <div class="legend-item"><span class="legend-dot done"></span>已办结</div>
@@ -290,11 +312,26 @@
                     </div>
                 </div>
 
+                <div class="form-group" style="display: none;">
+                    <label class="form-label" for="department">承办科室</label>
+                    <select id="department" class="form-input">
+                        <option value="">请选择承办科室</option>
+                        <option value="办公室">办公室</option>
+                        <option value="综合科">综合科</option>
+                        <option value="业务一科">业务一科</option>
+                        <option value="业务二科">业务二科</option>
+                        <option value="法制科">法制科</option>
+                        <option value="财务科">财务科</option>
+                        <option value="人事科">人事科</option>
+                        <option value="信息科">信息科</option>
+                    </select>
+                </div>
+
                 <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label" for="department">承办科室 <span class="required">*</span></label>
-                        <select id="department" class="form-input" required>
-                            <option value="">请选择承办科室</option>
+                        <label class="form-label" for="proposedDepartment">拟办科室</label>
+                        <select id="proposedDepartment" class="form-input">
+                            <option value="">请选择拟办科室（选填）</option>
                             <option value="办公室">办公室</option>
                             <option value="综合科">综合科</option>
                             <option value="业务一科">业务一科</option>
@@ -306,8 +343,69 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="deadline">办理期限 <span class="required">*</span></label>
-                        <input type="date" id="deadline" class="form-input" required>
+                        <label class="form-label" for="undertakingDepartment">承办科室 <span class="required">*</span></label>
+                        <select id="undertakingDepartment" class="form-input" required>
+                            <option value="">请选择承办科室</option>
+                            <option value="办公室">办公室</option>
+                            <option value="综合科">综合科</option>
+                            <option value="业务一科">业务一科</option>
+                            <option value="业务二科">业务二科</option>
+                            <option value="法制科">法制科</option>
+                            <option value="财务科">财务科</option>
+                            <option value="人事科">人事科</option>
+                            <option value="信息科">信息科</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" for="deadline">办理期限 <span class="required">*</span></label>
+                    <input type="date" id="deadline" class="form-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">协办科室</label>
+                    <div class="checkbox-group" id="addCoDeptCheckboxes">
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="办公室">
+                            <span class="custom-checkbox"></span>
+                            办公室
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="综合科">
+                            <span class="custom-checkbox"></span>
+                            综合科
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="业务一科">
+                            <span class="custom-checkbox"></span>
+                            业务一科
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="业务二科">
+                            <span class="custom-checkbox"></span>
+                            业务二科
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="法制科">
+                            <span class="custom-checkbox"></span>
+                            法制科
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="财务科">
+                            <span class="custom-checkbox"></span>
+                            财务科
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="人事科">
+                            <span class="custom-checkbox"></span>
+                            人事科
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" value="信息科">
+                            <span class="custom-checkbox"></span>
+                            信息科
+                        </label>
                     </div>
                 </div>
 
@@ -675,6 +773,158 @@
                     <button type="submit" class="btn btn-primary">保存模板</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div class="modal" id="flowModal">
+        <div class="modal-overlay" onclick="closeFlowModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="flowModalTitle">流转办理</h2>
+                <button class="modal-close" onclick="closeFlowModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="flow-action-list" id="flowActionList">
+                    <div class="flow-action-item" onclick="selectFlowAction('propose')">
+                        <div class="flow-action-icon">📋</div>
+                        <div class="flow-action-info">
+                            <div class="flow-action-name">拟办</div>
+                            <div class="flow-action-desc">指定拟办科室和承办科室</div>
+                        </div>
+                        <div class="flow-action-arrow">›</div>
+                    </div>
+                    <div class="flow-action-item" onclick="selectFlowAction('transfer')">
+                        <div class="flow-action-icon">🔄</div>
+                        <div class="flow-action-info">
+                            <div class="flow-action-name">转办</div>
+                            <div class="flow-action-desc">转交其他科室办理</div>
+                        </div>
+                        <div class="flow-action-arrow">›</div>
+                    </div>
+                    <div class="flow-action-item" onclick="selectFlowAction('assign_co')">
+                        <div class="flow-action-icon">🤝</div>
+                        <div class="flow-action-info">
+                            <div class="flow-action-name">指定协办</div>
+                            <div class="flow-action-desc">添加协办科室</div>
+                        </div>
+                        <div class="flow-action-arrow">›</div>
+                    </div>
+                    <div class="flow-action-item" onclick="selectFlowAction('feedback')">
+                        <div class="flow-action-icon">📤</div>
+                        <div class="flow-action-info">
+                            <div class="flow-action-name">反馈</div>
+                            <div class="flow-action-desc">提交办理反馈</div>
+                        </div>
+                        <div class="flow-action-arrow">›</div>
+                    </div>
+                    <div class="flow-action-item" onclick="selectFlowAction('complete')">
+                        <div class="flow-action-icon">✅</div>
+                        <div class="flow-action-info">
+                            <div class="flow-action-name">办结</div>
+                            <div class="flow-action-desc">标记为已办结</div>
+                        </div>
+                        <div class="flow-action-arrow">›</div>
+                    </div>
+                    <div class="flow-action-item" onclick="selectFlowAction('urge')">
+                        <div class="flow-action-icon">⏰</div>
+                        <div class="flow-action-info">
+                            <div class="flow-action-name">督办</div>
+                            <div class="flow-action-desc">发送督办提醒</div>
+                        </div>
+                        <div class="flow-action-arrow">›</div>
+                    </div>
+                </div>
+
+                <form id="flowActionFormEl" onsubmit="executeFlowAction(event)" style="display: none;">
+                    <div class="flow-action-header">
+                        <button type="button" class="flow-back-btn" onclick="backToFlowActionList()">‹</button>
+                        <div class="flow-action-title">
+                            <span class="flow-action-title-icon" id="flowActionIcon">📋</span>
+                            <span id="flowActionLabel">拟办</span>
+                        </div>
+                    </div>
+
+                    <div class="flow-form-section" id="flowDepartmentSection" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label" id="flowDepartmentLabel">承办科室 <span class="required">*</span></label>
+                            <select id="flowDepartmentSelect" class="form-input">
+                                <option value="">请选择科室</option>
+                                <option value="办公室">办公室</option>
+                                <option value="综合科">综合科</option>
+                                <option value="业务一科">业务一科</option>
+                                <option value="业务二科">业务二科</option>
+                                <option value="法制科">法制科</option>
+                                <option value="财务科">财务科</option>
+                                <option value="人事科">人事科</option>
+                                <option value="信息科">信息科</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flow-form-section" id="flowCoDeptSection" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label">协办科室</label>
+                            <div class="checkbox-group" id="coDeptCheckboxes">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="办公室">
+                                    <span class="custom-checkbox"></span>
+                                    办公室
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="综合科">
+                                    <span class="custom-checkbox"></span>
+                                    综合科
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="业务一科">
+                                    <span class="custom-checkbox"></span>
+                                    业务一科
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="业务二科">
+                                    <span class="custom-checkbox"></span>
+                                    业务二科
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="法制科">
+                                    <span class="custom-checkbox"></span>
+                                    法制科
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="财务科">
+                                    <span class="custom-checkbox"></span>
+                                    财务科
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="人事科">
+                                    <span class="custom-checkbox"></span>
+                                    人事科
+                                </label>
+                                <label class="checkbox-label">
+                                    <input type="checkbox" value="信息科">
+                                    <span class="custom-checkbox"></span>
+                                    信息科
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="flowOpinion">意见</label>
+                        <textarea id="flowOpinion" class="form-input form-textarea" placeholder="请输入办理意见" rows="4"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="flowHandler">处理人</label>
+                        <input type="text" id="flowHandler" class="form-input" placeholder="请输入处理人姓名（选填）">
+                    </div>
+
+                    <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                        <button type="button" class="btn btn-default" onclick="closeFlowModal()">取消</button>
+                        <button type="submit" class="btn btn-primary">确认</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
