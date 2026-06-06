@@ -912,7 +912,7 @@ function validateImportRow(row, index, allRows, existingDocs) {
 
     if (row.docNumber) {
         const dupInImport = allRows.filter(function(r, i) {
-            return i < index && r.docNumber && r.docNumber === row.docNumber;
+            return i !== index && r.docNumber && r.docNumber === row.docNumber;
         });
         if (dupInImport.length > 0) {
             errors.push('导入数据内文号重复');
