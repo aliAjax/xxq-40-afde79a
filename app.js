@@ -46,17 +46,55 @@ function saveTemplates(templates) {
     localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
 }
 
+function getCurrentFormTemplateData() {
+    const fromUnit = document.getElementById('fromUnit').value.trim();
+    const urgency = document.getElementById('urgency').value;
+    const department = document.getElementById('department').value;
+    const deadline = document.getElementById('deadline').value;
+    const receiveDate = document.getElementById('receiveDate').value;
+    const remark = document.getElementById('remark').value.trim();
+
+    let deadlineDays = 7;
+    if (deadline && receiveDate) {
+        deadlineDays = Math.ceil((new Date(deadline) - new Date(receiveDate)) / (1000 * 60 * 60 * 24));
+        if (deadlineDays < 0) deadlineDays = 7;
+    }
+
+    return {
+        fromUnit: fromUnit,
+        urgency: urgency,
+        department: department,
+        deadlineDays: deadlineDays,
+        remark: remark
+    };
+}
+
+function isTemplateContentEqual(a, b) {
+    return a.fromUnit === b.fromUnit &&
+        a.urgency === b.urgency &&
+        a.department === b.department &&
+        a.deadlineDays === b.deadlineDays &&
+        a.remark === b.remark;
+}
+
+function findDuplicateTemplate(name, content) {
+    const templates = getTemplates();
+    const nameDup = templates.find(function(t) { return t.name === name; });
+    const contentDup = templates.find(function(t) { return isTemplateContentEqual(t, content); });
+    return { nameDup: nameDup, contentDup: contentDup };
+}
+
 function renderTemplateSelect() {
     const templates = getTemplates();
     const selectEl = document.getElementById('templateSelect');
     const deleteBtn = document.getElementById('deleteTemplateBtn');
-    
+
     let html = '<option value="">选择模板快速填充...</option>';
     templates.forEach(function(tpl) {
         html += `<option value="${tpl.id}">${escapeHtml(tpl.name)}</option>`;
     });
     selectEl.innerHTML = html;
-    
+
     if (templates.length === 0) {
         deleteBtn.style.display = 'none';
     }
@@ -68,16 +106,16 @@ function applyTemplate(templateId) {
         deleteBtn.style.display = 'none';
         return;
     }
-    
+
     const templates = getTemplates();
     const tpl = templates.find(function(t) { return t.id === templateId; });
     if (!tpl) return;
-    
+
     document.getElementById('fromUnit').value = tpl.fromUnit || '';
     document.getElementById('urgency').value = tpl.urgency || '普通';
     document.getElementById('department').value = tpl.department || '';
     document.getElementById('remark').value = tpl.remark || '';
-    
+
     if (tpl.deadlineDays && tpl.deadlineDays > 0) {
         const receiveDate = document.getElementById('receiveDate').value;
         if (receiveDate) {
@@ -86,7 +124,7 @@ function applyTemplate(templateId) {
             document.getElementById('deadline').value = formatDateInput(deadline);
         }
     }
-    
+
     deleteBtn.style.display = 'inline-flex';
     showToast('已应用模板：' + tpl.name, 'info');
 }
@@ -98,17 +136,17 @@ function openSaveTemplateModal() {
     const deadline = document.getElementById('deadline').value;
     const receiveDate = document.getElementById('receiveDate').value;
     const remark = document.getElementById('remark').value.trim();
-    
+
     if (!fromUnit || !department) {
         showToast('请至少填写来文单位和承办科室后再保存模板', 'error');
         return;
     }
-    
+
     document.getElementById('templateName').value = '';
     document.getElementById('previewFromUnit').textContent = fromUnit || '-';
     document.getElementById('previewUrgency').textContent = urgency || '-';
     document.getElementById('previewDepartment').textContent = department || '-';
-    
+
     let deadlineText = '-';
     if (deadline && receiveDate) {
         const days = Math.ceil((new Date(deadline) - new Date(receiveDate)) / (1000 * 60 * 60 * 24));
@@ -118,11 +156,43 @@ function openSaveTemplateModal() {
     }
     document.getElementById('previewDeadline').textContent = deadlineText;
     document.getElementById('previewRemark').textContent = remark ? remark.substring(0, 30) + (remark.length > 30 ? '...' : '') : '-';
-    
+
+    updateTemplateDupTip();
+
     document.getElementById('saveTemplateModal').classList.add('show');
     setTimeout(function() {
         document.getElementById('templateName').focus();
     }, 100);
+}
+
+function updateTemplateDupTip() {
+    const name = document.getElementById('templateName').value.trim();
+    const dupTip = document.getElementById('templateDupTip');
+    const dupText = document.getElementById('templateDupText');
+
+    if (!name) {
+        dupTip.style.display = 'none';
+        return;
+    }
+
+    const formData = getCurrentFormTemplateData();
+    const { nameDup, contentDup } = findDuplicateTemplate(name, formData);
+
+    if (nameDup && contentDup && nameDup.id === contentDup.id) {
+        dupTip.className = 'template-duplicate-tip dup-warn';
+        dupText.textContent = '已存在同名且内容完全相同的模板';
+        dupTip.style.display = 'flex';
+    } else if (nameDup) {
+        dupTip.className = 'template-duplicate-tip dup-warn';
+        dupText.textContent = '已存在同名模板，保存将覆盖原有内容';
+        dupTip.style.display = 'flex';
+    } else if (contentDup) {
+        dupTip.className = 'template-duplicate-tip dup-info';
+        dupText.textContent = '与模板「' + contentDup.name + '」内容相同，考虑直接使用？';
+        dupTip.style.display = 'flex';
+    } else {
+        dupTip.style.display = 'none';
+    }
 }
 
 function closeSaveTemplateModal() {
@@ -131,42 +201,63 @@ function closeSaveTemplateModal() {
 
 function saveTemplate(e) {
     e.preventDefault();
-    
+
     const name = document.getElementById('templateName').value.trim();
     if (!name) {
         showToast('请输入模板名称', 'error');
         return;
     }
-    
-    const fromUnit = document.getElementById('fromUnit').value.trim();
-    const urgency = document.getElementById('urgency').value;
-    const department = document.getElementById('department').value;
-    const deadline = document.getElementById('deadline').value;
-    const receiveDate = document.getElementById('receiveDate').value;
-    const remark = document.getElementById('remark').value.trim();
-    
-    let deadlineDays = 7;
-    if (deadline && receiveDate) {
-        deadlineDays = Math.ceil((new Date(deadline) - new Date(receiveDate)) / (1000 * 60 * 60 * 24));
-        if (deadlineDays < 0) deadlineDays = 7;
+
+    const formData = getCurrentFormTemplateData();
+    const { nameDup, contentDup } = findDuplicateTemplate(name, formData);
+
+    if (contentDup && contentDup.name === name) {
+        showToast('已存在完全相同的模板：' + name, 'info');
+        return;
     }
-    
+
+    if (contentDup && contentDup.name !== name) {
+        if (!confirm('检测到与模板「' + contentDup.name + '」内容完全相同，仍要保存为新模板吗？')) {
+            return;
+        }
+    }
+
+    if (nameDup) {
+        if (!confirm('已存在名为「' + name + '」的模板，是否覆盖？\n\n覆盖后原模板内容将被替换，此操作不可恢复。')) {
+            return;
+        }
+        const templates = getTemplates();
+        const index = templates.findIndex(function(t) { return t.id === nameDup.id; });
+        if (index !== -1) {
+            templates[index] = {
+                ...templates[index],
+                ...formData,
+                updatedAt: new Date().toISOString()
+            };
+            saveTemplates(templates);
+            renderTemplateSelect();
+            document.getElementById('templateSelect').value = nameDup.id;
+            document.getElementById('deleteTemplateBtn').style.display = 'inline-flex';
+            closeSaveTemplateModal();
+            showToast('模板已更新', 'success');
+            return;
+        }
+    }
+
     const templates = getTemplates();
     const newTemplate = {
         id: generateId(),
         name: name,
-        fromUnit: fromUnit,
-        urgency: urgency,
-        department: department,
-        deadlineDays: deadlineDays,
-        remark: remark,
+        ...formData,
         createdAt: new Date().toISOString()
     };
-    
+
     templates.unshift(newTemplate);
     saveTemplates(templates);
     renderTemplateSelect();
-    
+    document.getElementById('templateSelect').value = newTemplate.id;
+    document.getElementById('deleteTemplateBtn').style.display = 'inline-flex';
+
     closeSaveTemplateModal();
     showToast('模板保存成功', 'success');
 }
@@ -178,20 +269,20 @@ function deleteCurrentTemplate() {
         showToast('请先选择要删除的模板', 'error');
         return;
     }
-    
+
     const templates = getTemplates();
     const tpl = templates.find(function(t) { return t.id === templateId; });
     if (!tpl) return;
-    
+
     if (!confirm('确定要删除模板「' + tpl.name + '」吗？此操作不可恢复。')) {
         return;
     }
-    
+
     const filtered = templates.filter(function(t) { return t.id !== templateId; });
     saveTemplates(filtered);
     renderTemplateSelect();
     document.getElementById('deleteTemplateBtn').style.display = 'none';
-    
+
     showToast('模板已删除', 'success');
 }
 
@@ -2203,6 +2294,11 @@ function init() {
         if (templateSelect && templateSelect.value) {
             applyTemplate(templateSelect.value);
         }
+    });
+
+    document.getElementById('templateName').addEventListener('input', function() {
+        clearTimeout(window.templateDupTimer);
+        window.templateDupTimer = setTimeout(updateTemplateDupTip, 200);
     });
 
     document.addEventListener('keydown', function(e) {

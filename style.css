@@ -2387,6 +2387,32 @@ body {
     line-height: 1.5;
 }
 
+.template-duplicate-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-bottom: 10px;
+}
+
+.template-duplicate-tip.dup-warn {
+    background: #fff1f0;
+    color: #cf1322;
+}
+
+.template-duplicate-tip.dup-info {
+    background: #e6f7ff;
+    color: #096dd9;
+}
+
+.dup-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
 .tip-icon {
     font-size: 14px;
     flex-shrink: 0;
