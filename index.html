@@ -61,6 +61,69 @@
             </div>
         </div>
 
+        <div class="filter-section">
+            <div class="filter-header" onclick="toggleAdvancedFilter()">
+                <div class="filter-title">
+                    <span class="filter-icon">🔍</span>
+                    <span>高级筛选</span>
+                    <span class="filter-active-badge" id="filterActiveBadge" style="display: none;">已启用</span>
+                </div>
+                <span class="filter-arrow" id="filterArrow">▼</span>
+            </div>
+            <div class="filter-content" id="filterContent">
+                <div class="filter-row">
+                    <div class="filter-item">
+                        <label class="filter-label">承办科室</label>
+                        <select id="filterDepartment" class="filter-select" onchange="applyAdvancedFilter()">
+                            <option value="">全部科室</option>
+                            <option value="办公室">办公室</option>
+                            <option value="综合科">综合科</option>
+                            <option value="业务一科">业务一科</option>
+                            <option value="业务二科">业务二科</option>
+                            <option value="法制科">法制科</option>
+                            <option value="财务科">财务科</option>
+                            <option value="人事科">人事科</option>
+                            <option value="信息科">信息科</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <label class="filter-label">紧急程度</label>
+                        <select id="filterUrgency" class="filter-select" onchange="applyAdvancedFilter()">
+                            <option value="">全部程度</option>
+                            <option value="普通">普通</option>
+                            <option value="加急">加急</option>
+                            <option value="特急">特急</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <div class="filter-item">
+                        <label class="filter-label">收文日期起</label>
+                        <input type="date" id="filterReceiveDateStart" class="filter-input" onchange="applyAdvancedFilter()">
+                    </div>
+                    <div class="filter-item">
+                        <label class="filter-label">收文日期止</label>
+                        <input type="date" id="filterReceiveDateEnd" class="filter-input" onchange="applyAdvancedFilter()">
+                    </div>
+                </div>
+                <div class="filter-row">
+                    <div class="filter-item">
+                        <label class="filter-label">办理期限起</label>
+                        <input type="date" id="filterDeadlineStart" class="filter-input" onchange="applyAdvancedFilter()">
+                    </div>
+                    <div class="filter-item">
+                        <label class="filter-label">办理期限止</label>
+                        <input type="date" id="filterDeadlineEnd" class="filter-input" onchange="applyAdvancedFilter()">
+                    </div>
+                </div>
+                <div class="filter-actions">
+                    <button class="btn btn-default" onclick="clearAdvancedFilter()">
+                        <span class="btn-icon">✕</span> 清空筛选
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div class="tabs">
             <div class="tab active" data-tab="pending" onclick="switchTab('pending')">
                 待办理 <span class="tab-badge" id="tabPendingBadge">0</span>

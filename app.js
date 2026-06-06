@@ -1,6 +1,15 @@
 const STORAGE_KEY = 'document_registry_data';
 let currentTab = 'pending';
 let searchKeyword = '';
+let advancedFilter = {
+    department: '',
+    urgency: '',
+    receiveDateStart: '',
+    receiveDateEnd: '',
+    deadlineStart: '',
+    deadlineEnd: ''
+};
+let filterCollapsed = false;
 
 function getDocuments() {
     const data = localStorage.getItem(STORAGE_KEY);
@@ -106,7 +115,7 @@ function updateStats() {
     document.getElementById('tabDoneBadge').textContent = doneCount;
 }
 
-function filterDocuments(documents, tab, keyword) {
+function filterDocuments(documents, tab, keyword, filter) {
     let filtered = documents;
 
     if (tab === 'pending') {
@@ -133,6 +142,30 @@ function filterDocuments(documents, tab, keyword) {
         );
     }
 
+    if (filter.department) {
+        filtered = filtered.filter(doc => doc.department === filter.department);
+    }
+
+    if (filter.urgency) {
+        filtered = filtered.filter(doc => doc.urgency === filter.urgency);
+    }
+
+    if (filter.receiveDateStart) {
+        filtered = filtered.filter(doc => doc.receiveDate >= filter.receiveDateStart);
+    }
+
+    if (filter.receiveDateEnd) {
+        filtered = filtered.filter(doc => doc.receiveDate <= filter.receiveDateEnd);
+    }
+
+    if (filter.deadlineStart) {
+        filtered = filtered.filter(doc => doc.deadline >= filter.deadlineStart);
+    }
+
+    if (filter.deadlineEnd) {
+        filtered = filtered.filter(doc => doc.deadline <= filter.deadlineEnd);
+    }
+
     filtered.sort((a, b) => {
         if (a.completed !== b.completed) {
             return a.completed ? 1 : -1;
@@ -143,28 +176,42 @@ function filterDocuments(documents, tab, keyword) {
     return filtered;
 }
 
+function hasAdvancedFilter() {
+    return advancedFilter.department ||
+        advancedFilter.urgency ||
+        advancedFilter.receiveDateStart ||
+        advancedFilter.receiveDateEnd ||
+        advancedFilter.deadlineStart ||
+        advancedFilter.deadlineEnd;
+}
+
 function renderDocumentList() {
     const documents = getDocuments();
-    const filtered = filterDocuments(documents, currentTab, searchKeyword);
+    const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
     const listEl = document.getElementById('documentList');
 
     if (filtered.length === 0) {
+        const hasFilter = searchKeyword || hasAdvancedFilter();
         let emptyText = '暂无收文记录';
-        if (searchKeyword) {
-            emptyText = '未找到匹配的收文记录';
+        let showAddButton = true;
+
+        if (hasFilter) {
+            emptyText = '未找到匹配的收文记录，请调整筛选条件';
+            showAddButton = false;
         } else if (currentTab === 'pending') {
             emptyText = '暂无待办理的收文';
         } else if (currentTab === 'urgent') {
             emptyText = '暂无即将到期的收文';
         } else if (currentTab === 'done') {
             emptyText = '暂无已办结的收文';
+            showAddButton = false;
         }
 
         listEl.innerHTML = `
             <div class="empty-state">
-                <div class="empty-icon">📂</div>
+                <div class="empty-icon">${hasFilter ? '🔍' : '📂'}</div>
                 <p class="empty-text">${emptyText}</p>
-                ${!searchKeyword && currentTab !== 'done' ? '<button class="btn btn-primary" onclick="openAddModal()">新增收文</button>' : ''}
+                ${showAddButton ? '<button class="btn btn-primary" onclick="openAddModal()">新增收文</button>' : ''}
             </div>
         `;
         return;
@@ -250,6 +297,55 @@ function switchTab(tab) {
 function searchDocuments() {
     searchKeyword = document.getElementById('searchInput').value.trim();
     renderDocumentList();
+}
+
+function toggleAdvancedFilter() {
+    filterCollapsed = !filterCollapsed;
+    const filterSection = document.querySelector('.filter-section');
+    if (filterCollapsed) {
+        filterSection.classList.add('collapsed');
+    } else {
+        filterSection.classList.remove('collapsed');
+    }
+}
+
+function applyAdvancedFilter() {
+    advancedFilter.department = document.getElementById('filterDepartment').value;
+    advancedFilter.urgency = document.getElementById('filterUrgency').value;
+    advancedFilter.receiveDateStart = document.getElementById('filterReceiveDateStart').value;
+    advancedFilter.receiveDateEnd = document.getElementById('filterReceiveDateEnd').value;
+    advancedFilter.deadlineStart = document.getElementById('filterDeadlineStart').value;
+    advancedFilter.deadlineEnd = document.getElementById('filterDeadlineEnd').value;
+    updateFilterActiveBadge();
+    renderDocumentList();
+}
+
+function clearAdvancedFilter() {
+    advancedFilter = {
+        department: '',
+        urgency: '',
+        receiveDateStart: '',
+        receiveDateEnd: '',
+        deadlineStart: '',
+        deadlineEnd: ''
+    };
+    document.getElementById('filterDepartment').value = '';
+    document.getElementById('filterUrgency').value = '';
+    document.getElementById('filterReceiveDateStart').value = '';
+    document.getElementById('filterReceiveDateEnd').value = '';
+    document.getElementById('filterDeadlineStart').value = '';
+    document.getElementById('filterDeadlineEnd').value = '';
+    updateFilterActiveBadge();
+    renderDocumentList();
+}
+
+function updateFilterActiveBadge() {
+    const badge = document.getElementById('filterActiveBadge');
+    if (hasAdvancedFilter()) {
+        badge.style.display = 'inline-block';
+    } else {
+        badge.style.display = 'none';
+    }
 }
 
 function openAddModal() {
@@ -475,6 +571,7 @@ function init() {
         }
     });
 
+    updateFilterActiveBadge();
     updateStats();
     renderDocumentList();
 }
