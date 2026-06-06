@@ -1,0 +1,27 @@
+# Auto-detect text files and normalize line endings to LF on check-in
+* text=auto eol=lf
+
+# Source files - force LF line endings
+*.js   text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.sh   text eol=lf
+
+# Shell scripts - must have LF to work
+*.sh text eol=lf executable
+
+# Image files - binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+
+# Font files - binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary

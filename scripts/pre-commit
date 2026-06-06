@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook: 提交前代码质量检查
+# 功能：
+#   1. 检查行尾空格
+#   2. 检查行首空格+制表符混合缩进
+#   3. 检查文件末尾空行
+#   4. 检查冲突标记
+#   5. 检查大型二进制文件意外提交
+
+set -e
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# 如果是初始提交，没有可比较的对象，跳过
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+    against=HEAD
+else
+    against=4b825dc642cb6eb9a060e54bf8d69288fbee4904
+fi
+
+# 获取暂存区文件列表
+files=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$files" ]; then
+    exit 0
+fi
+
+echo "==> 运行提交前检查..."
+
+exit_code=0
+
+# ============================================================
+# 1. 使用 git diff --check 检查空格问题
+# ============================================================
+echo ""
+echo "  [1/4] 检查行尾空格和缩进问题..."
+whitespace_errors=$(git diff --check --cached $against -- 2>&1 || true)
+
+if [ -n "$whitespace_errors" ]; then
+    echo -e "${RED}  ✗ 发现空格问题：${NC}"
+    echo ""
+    echo "$whitespace_errors" | sed 's/^/    /'
+    echo ""
+    echo -e "${YELLOW}  提示：可以使用以下命令自动修复：${NC}"
+    echo -e "    ${YELLOW}git diff --cached --check | head -n 1 | awk -F: '{print \$1}' | sort -u | xargs sed -i '' 's/[[:space:]]*$//'${NC}"
+    echo ""
+    exit_code=1
+else
+    echo -e "${GREEN}  ✓ 行尾空格检查通过${NC}"
+fi
+
+# ============================================================
+# 2. 检查冲突标记
+# ============================================================
+echo ""
+echo "  [2/4] 检查合并冲突标记..."
+conflict_markers=""
+for file in $files; do
+    if [ ! -f "$file" ]; then
+        continue
+    fi
+
+    # 检测是否为二进制文件
+    if file "$file" | grep -q 'text'; then
+        if grep -q '^<<<<<<< ' "$file" || grep -q '^>>>>>>> ' "$file"; then
+            conflict_markers="$conflict_markers  - $file"$'\n'
+        fi
+    fi
+done
+
+if [ -n "$conflict_markers" ]; then
+    echo -e "${RED}  ✗ 发现合并冲突标记：${NC}"
+    echo "$conflict_markers"
+    exit_code=1
+else
+    echo -e "${GREEN}  ✓ 冲突标记检查通过${NC}"
+fi
+
+# ============================================================
+# 3. 检查大文件
+# ============================================================
+echo ""
+echo "  [3/4] 检查大文件 (>= 1MB)..."
+large_files=""
+max_size=1048576  # 1MB
+
+for file in $files; do
+    size=$(git ls-tree -r --long HEAD -- "$file" 2>/dev/null | awk '{print $4}')
+    if [ -z "$size" ]; then
+        size=$(stat -f%z "$file" 2>/dev/null || echo 0)
+    fi
+    if [ "$size" -gt "$max_size" ] 2>/dev/null; then
+        large_files="$large_files  - $file ($((size / 1024)) KB)"$'\n'
+    fi
+done
+
+if [ -n "$large_files" ]; then
+    echo -e "${YELLOW}  ⚠ 发现较大文件：${NC}"
+    echo "$large_files"
+    echo -e "${YELLOW}  提示：请确认这些文件是否需要纳入版本控制${NC}"
+else
+    echo -e "${GREEN}  ✓ 大文件检查通过${NC}"
+fi
+
+# ============================================================
+# 4. 格式化检查结果
+# ============================================================
+echo ""
+if [ $exit_code -ne 0 ]; then
+    echo -e "${RED}=================================${NC}"
+    echo -e "${RED}  提交被阻止！${NC}"
+    echo -e "${RED}=================================${NC}"
+    echo ""
+    echo "  请修复上述问题后再提交。"
+    echo ""
+    echo "  如确需跳过检查（不推荐），可使用："
+    echo "    git commit --no-verify"
+    echo ""
+    exit 1
+else
+    echo -e "${GREEN}=================================${NC}"
+    echo -e "${GREEN}  全部检查通过 ✓${NC}"
+    echo -e "${GREEN}=================================${NC}"
+    echo ""
+    exit 0
+fi
