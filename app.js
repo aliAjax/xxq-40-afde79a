@@ -2333,7 +2333,7 @@ function viewDocument(id) {
             <div class="detail-actions-divider"></div>
             <button class="btn btn-default" onclick="openReminderNoteModal('${doc.id}')">📝 提醒备注</button>
             <button class="btn btn-warning" onclick="openExtendDeadlineModal('${doc.id}')">⏰ 延长期限</button>
-            ${isSnoozed ? 
+            ${isSnoozed ?
                 `<button class="btn btn-default" onclick="cancelSnooze('${doc.id}'); viewDocument('${doc.id}');">🔔 取消暂不提醒</button>` :
                 `<button class="btn btn-default" onclick="openSnoozeModal('${doc.id}')">🙈 暂不提醒</button>`
             }
