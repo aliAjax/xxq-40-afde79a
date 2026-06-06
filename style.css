@@ -1693,3 +1693,239 @@ body {
         gap: 8px;
     }
 }
+
+.doc-latest-record {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: #fafafa;
+    border-radius: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+    flex-wrap: wrap;
+}
+
+.latest-record-icon {
+    font-size: 14px;
+}
+
+.latest-record-type {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #e6f7ff;
+    color: #1890ff;
+}
+
+.latest-record-content {
+    flex: 1;
+    color: #666;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.latest-record-meta {
+    color: #999;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.detail-section {
+    margin-top: 8px;
+    padding-top: 20px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.detail-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.detail-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.detail-section-count {
+    font-size: 13px;
+    color: #999;
+    background: #f5f5f5;
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.records-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+    font-size: 14px;
+    background: #fafafa;
+    border-radius: 8px;
+}
+
+.processing-records {
+    position: relative;
+}
+
+.record-item {
+    display: flex;
+    gap: 16px;
+    position: relative;
+}
+
+.record-item.record-last .record-line {
+    display: none;
+}
+
+.record-timeline {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+    width: 40px;
+}
+
+.record-dot {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #f0f5ff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+    z-index: 1;
+}
+
+.record-item.record-completion .record-dot {
+    background: #f6ffed;
+}
+
+.record-line {
+    flex: 1;
+    width: 2px;
+    background: #e8e8e8;
+    margin: 4px 0;
+    min-height: 20px;
+}
+
+.record-content {
+    flex: 1;
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.record-item.record-completion .record-content {
+    background: #f6ffed;
+    border: 1px solid #b7eb8f;
+}
+
+.record-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    gap: 12px;
+}
+
+.record-type-tag {
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #e6f7ff;
+    color: #1890ff;
+}
+
+.record-item.record-completion .record-type-tag {
+    background: #d9f7be;
+    color: #389e0d;
+}
+
+.record-time {
+    font-size: 12px;
+    color: #999;
+    flex-shrink: 0;
+}
+
+.record-text {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.record-handler {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #666;
+    padding-top: 8px;
+    border-top: 1px dashed #e8e8e8;
+}
+
+.btn-info {
+    background: #1890ff;
+    color: white;
+}
+
+.btn-info:hover {
+    background: #096dd9;
+}
+
+.complete-tip {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 16px;
+    padding: 10px 14px;
+    background: #e6f7ff;
+    border-radius: 6px;
+    border-left: 3px solid #1890ff;
+}
+
+@media (max-width: 768px) {
+    .doc-latest-record {
+        font-size: 12px;
+        padding: 8px 10px;
+    }
+
+    .latest-record-content {
+        width: 100%;
+        order: 3;
+    }
+
+    .latest-record-meta {
+        order: 2;
+        margin-left: auto;
+    }
+
+    .record-content {
+        padding: 10px 12px;
+    }
+
+    .record-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
+
+    .record-timeline {
+        width: 32px;
+    }
+
+    .record-dot {
+        width: 30px;
+        height: 30px;
+        font-size: 14px;
+    }
+}

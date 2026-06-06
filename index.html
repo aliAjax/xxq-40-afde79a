@@ -279,7 +279,7 @@
 
     <div class="modal" id="detailModal">
         <div class="modal-overlay" onclick="closeDetailModal()"></div>
-        <div class="modal-content">
+        <div class="modal-content modal-large">
             <div class="modal-header">
                 <h2>收文详情</h2>
                 <button class="modal-close" onclick="closeDetailModal()">✕</button>
@@ -291,6 +291,57 @@
         </div>
     </div>
 
+    <div class="modal" id="addRecordModal">
+        <div class="modal-overlay" onclick="closeAddRecordModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>追加办理进展</h2>
+                <button class="modal-close" onclick="closeAddRecordModal()">✕</button>
+            </div>
+            <form id="addRecordForm" class="modal-body" onsubmit="saveProcessingRecord(event)">
+                <input type="hidden" id="addRecordDocId">
+                <div class="form-group">
+                    <label class="form-label" for="recordContent">办理内容 <span class="required">*</span></label>
+                    <textarea id="recordContent" class="form-input form-textarea" placeholder="请输入办理进展内容" rows="5" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="recordHandler">处理人</label>
+                    <input type="text" id="recordHandler" class="form-input" placeholder="请输入处理人姓名（选填）">
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeAddRecordModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存记录</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="completeModal">
+        <div class="modal-overlay" onclick="closeCompleteModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>标记办结</h2>
+                <button class="modal-close" onclick="closeCompleteModal()">✕</button>
+            </div>
+            <form id="completeForm" class="modal-body" onsubmit="confirmComplete(event)">
+                <input type="hidden" id="completeDocId">
+                <p class="complete-tip">请填写办结说明，完成后该收文将标记为已办结。</p>
+                <div class="form-group">
+                    <label class="form-label" for="completeRemark">办结说明 <span class="required">*</span></label>
+                    <textarea id="completeRemark" class="form-input form-textarea" placeholder="请输入办结说明内容" rows="5" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="completeHandler">处理人</label>
+                    <input type="text" id="completeHandler" class="form-input" placeholder="请输入处理人姓名（选填）">
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeCompleteModal()">取消</button>
+                    <button type="submit" class="btn btn-success">确认办结</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="modal" id="batchConfirmModal">
         <div class="modal-overlay" onclick="closeBatchConfirmModal()"></div>
         <div class="modal-content modal-small">
@@ -298,14 +349,24 @@
                 <h2 id="batchConfirmTitle">确认操作</h2>
                 <button class="modal-close" onclick="closeBatchConfirmModal()">✕</button>
             </div>
-            <div class="modal-body">
+            <form id="batchConfirmForm" class="modal-body" onsubmit="executeBatchAction(event)">
                 <p id="batchConfirmMessage" class="batch-confirm-text"></p>
                 <div class="batch-preview-list" id="batchPreviewList"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-default" onclick="closeBatchConfirmModal()">取消</button>
-                <button type="button" class="btn" id="batchConfirmBtn" onclick="executeBatchAction()">确认</button>
-            </div>
+                <div id="batchCompleteFields" style="display: none; margin-top: 16px;">
+                    <div class="form-group">
+                        <label class="form-label" for="batchCompleteRemark">办结说明</label>
+                        <textarea id="batchCompleteRemark" class="form-input form-textarea" placeholder="请输入统一的办结说明（选填）" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="batchCompleteHandler">处理人</label>
+                        <input type="text" id="batchCompleteHandler" class="form-input" placeholder="请输入处理人姓名（选填）">
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeBatchConfirmModal()">取消</button>
+                    <button type="submit" class="btn" id="batchConfirmBtn">确认</button>
+                </div>
+            </form>
         </div>
     </div>
 

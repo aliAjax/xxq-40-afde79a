@@ -15,7 +15,14 @@ let currentBatchAction = null;
 
 function getDocuments() {
     const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    if (!data) return [];
+    const documents = JSON.parse(data);
+    return documents.map(function(doc) {
+        if (!doc.processingRecords) {
+            doc.processingRecords = [];
+        }
+        return doc;
+    });
 }
 
 function saveDocuments(documents) {
@@ -34,6 +41,93 @@ function formatDate(dateStr) {
         month: '2-digit',
         day: '2-digit'
     });
+}
+
+function formatDateTime(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function getLatestRecord(doc) {
+    if (!doc.processingRecords || doc.processingRecords.length === 0) {
+        return null;
+    }
+    const sorted = doc.processingRecords.slice().sort(function(a, b) {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+    return sorted[0];
+}
+
+function renderLatestRecordSummary(doc) {
+    const latest = getLatestRecord(doc);
+    if (!latest && !doc.completedRemark) {
+        return '';
+    }
+    let content = '';
+    let time = '';
+    let handler = '';
+    let typeLabel = '';
+    if (latest) {
+        content = latest.content;
+        time = formatDateTime(latest.createdAt);
+        handler = latest.handler || '';
+        typeLabel = latest.type === 'completion' ? '办结' : '进展';
+    } else if (doc.completedRemark) {
+        content = doc.completedRemark;
+        time = formatDateTime(doc.completedAt);
+        typeLabel = '办结';
+    }
+    const summary = content.length > 40 ? content.substring(0, 40) + '...' : content;
+    const handlerText = handler ? ' · ' + escapeHtml(handler) : '';
+    return `
+        <div class="doc-latest-record">
+            <span class="latest-record-icon">📝</span>
+            <span class="latest-record-type">${typeLabel}</span>
+            <span class="latest-record-content">${escapeHtml(summary)}</span>
+            <span class="latest-record-meta">${time}${handlerText}</span>
+        </div>
+    `;
+}
+
+function renderProcessingRecords(doc) {
+    const records = doc.processingRecords || [];
+    if (records.length === 0 && !doc.completedRemark) {
+        return '<div class="records-empty">暂无办理记录</div>';
+    }
+    const sortedRecords = records.slice().sort(function(a, b) {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+    let html = '<div class="processing-records">';
+    sortedRecords.forEach(function(record, index) {
+        const isLast = index === sortedRecords.length - 1;
+        const typeClass = record.type === 'completion' ? 'record-completion' : 'record-progress';
+        const typeText = record.type === 'completion' ? '办结' : '进展';
+        const typeIcon = record.type === 'completion' ? '✅' : '📋';
+        html += `
+            <div class="record-item ${typeClass} ${isLast ? 'record-last' : ''}">
+                <div class="record-timeline">
+                    <div class="record-dot">${typeIcon}</div>
+                    <div class="record-line"></div>
+                </div>
+                <div class="record-content">
+                    <div class="record-header">
+                        <span class="record-type-tag">${typeText}</span>
+                        <span class="record-time">${formatDateTime(record.createdAt)}</span>
+                    </div>
+                    <div class="record-text">${escapeHtml(record.content)}</div>
+                    ${record.handler ? `<div class="record-handler">处理人：${escapeHtml(record.handler)}</div>` : ''}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    return html;
 }
 
 function getToday() {
@@ -278,6 +372,7 @@ function renderDocumentList() {
                         <span class="doc-info-value ${deadlineClass}">${deadlineText}</span>
                     </div>
                 </div>
+                ${renderLatestRecordSummary(doc)}
                 <div class="doc-actions" onclick="event.stopPropagation()">
                     ${actions}
                 </div>
@@ -365,7 +460,7 @@ function openBatchCompleteModal() {
     if (selectedIds.length === 0) return;
     
     const selectedDocs = getSelectedDocuments();
-    const uncompletedDocs = selectedDocs.filter(doc => !doc.completed);
+    const uncompletedDocs = selectedDocs.filter(function(doc) { return !doc.completed; });
     
     if (uncompletedDocs.length === 0) {
         showToast('所选收文均已办结', 'info');
@@ -375,8 +470,12 @@ function openBatchCompleteModal() {
     currentBatchAction = 'complete';
     document.getElementById('batchConfirmTitle').textContent = '批量办结确认';
     document.getElementById('batchConfirmMessage').innerHTML = 
-        `确定要将选中的 <span>${uncompletedDocs.length}</span> 条收文标记为已办结吗？`;
+        '确定要将选中的 <span>' + uncompletedDocs.length + '</span> 条收文标记为已办结吗？';
     document.getElementById('batchConfirmBtn').className = 'btn btn-success';
+    
+    document.getElementById('batchCompleteFields').style.display = 'block';
+    document.getElementById('batchCompleteRemark').value = '';
+    document.getElementById('batchCompleteHandler').value = '';
     
     buildBatchPreviewList('batchPreviewList');
     document.getElementById('batchConfirmModal').classList.add('show');
@@ -388,8 +487,10 @@ function openBatchDeleteModal() {
     currentBatchAction = 'delete';
     document.getElementById('batchConfirmTitle').textContent = '批量删除确认';
     document.getElementById('batchConfirmMessage').innerHTML = 
-        `确定要删除选中的 <span>${selectedIds.length}</span> 条收文吗？此操作不可恢复。`;
+        '确定要删除选中的 <span>' + selectedIds.length + '</span> 条收文吗？此操作不可恢复。';
     document.getElementById('batchConfirmBtn').className = 'btn btn-danger';
+    
+    document.getElementById('batchCompleteFields').style.display = 'none';
     
     buildBatchPreviewList('batchPreviewList');
     document.getElementById('batchConfirmModal').classList.add('show');
@@ -400,31 +501,51 @@ function closeBatchConfirmModal() {
     currentBatchAction = null;
 }
 
-function executeBatchAction() {
+function executeBatchAction(e) {
+    if (e) {
+        e.preventDefault();
+    }
     if (!currentBatchAction) return;
     
     const documents = getDocuments();
     
     if (currentBatchAction === 'complete') {
+        const batchRemark = document.getElementById('batchCompleteRemark') ? 
+            document.getElementById('batchCompleteRemark').value.trim() : '';
+        const batchHandler = document.getElementById('batchCompleteHandler') ?
+            document.getElementById('batchCompleteHandler').value.trim() : '';
+        
         let count = 0;
-        const updatedDocs = documents.map(doc => {
+        const now = new Date().toISOString();
+        const updatedDocs = documents.map(function(doc) {
             if (selectedIds.includes(doc.id) && !doc.completed) {
                 count++;
+                const completionRecord = {
+                    id: generateId(),
+                    type: 'completion',
+                    content: batchRemark || '批量办结',
+                    handler: batchHandler || '',
+                    createdAt: now
+                };
+                const records = doc.processingRecords || [];
+                records.push(completionRecord);
                 return {
                     ...doc,
                     completed: true,
-                    completedAt: new Date().toISOString()
+                    completedAt: now,
+                    completedRemark: batchRemark || '批量办结',
+                    processingRecords: records
                 };
             }
             return doc;
         });
         saveDocuments(updatedDocs);
-        showToast(`成功办结 ${count} 条收文`, 'success');
+        showToast('成功办结 ' + count + ' 条收文', 'success');
     } else if (currentBatchAction === 'delete') {
         const count = selectedIds.length;
-        const filtered = documents.filter(doc => !selectedIds.includes(doc.id));
+        const filtered = documents.filter(function(doc) { return !selectedIds.includes(doc.id); });
         saveDocuments(filtered);
-        showToast(`成功删除 ${count} 条收文`, 'success');
+        showToast('成功删除 ' + count + ' 条收文', 'success');
     }
     
     selectedIds = [];
@@ -618,6 +739,8 @@ function saveDocument(e) {
             ...docData,
             completed: false,
             completedAt: null,
+            completedRemark: '',
+            processingRecords: [],
             createdAt: new Date().toISOString()
         };
         documents.unshift(newDoc);
@@ -631,24 +754,131 @@ function saveDocument(e) {
 }
 
 function completeDocument(id) {
-    if (!confirm('确定要将该收文标记为已办结吗？')) return;
+    openCompleteModal(id);
+}
+
+function openAddRecordModal(docId) {
+    document.getElementById('addRecordDocId').value = docId;
+    document.getElementById('recordContent').value = '';
+    document.getElementById('recordHandler').value = '';
+    document.getElementById('addRecordModal').classList.add('show');
+}
+
+function closeAddRecordModal() {
+    document.getElementById('addRecordModal').classList.remove('show');
+}
+
+function saveProcessingRecord(e) {
+    e.preventDefault();
+    const docId = document.getElementById('addRecordDocId').value;
+    const content = document.getElementById('recordContent').value.trim();
+    const handler = document.getElementById('recordHandler').value.trim();
+
+    if (!content) {
+        showToast('请输入办理内容', 'error');
+        return;
+    }
 
     const documents = getDocuments();
-    const index = documents.findIndex(d => d.id === id);
-    if (index !== -1) {
-        documents[index].completed = true;
-        documents[index].completedAt = new Date().toISOString();
-        saveDocuments(documents);
-        
-        const selIndex = selectedIds.indexOf(id);
-        if (selIndex > -1) {
-            selectedIds.splice(selIndex, 1);
-        }
-        
-        updateStats();
-        renderDocumentList();
-        showToast('收文已办结', 'success');
+    const index = documents.findIndex(function(d) { return d.id === docId; });
+    if (index === -1) {
+        showToast('收文不存在', 'error');
+        return;
     }
+
+    const doc = documents[index];
+    if (!doc.processingRecords) {
+        doc.processingRecords = [];
+    }
+
+    const newRecord = {
+        id: generateId(),
+        type: 'progress',
+        content: content,
+        handler: handler,
+        createdAt: new Date().toISOString()
+    };
+
+    doc.processingRecords.push(newRecord);
+    documents[index] = doc;
+    saveDocuments(documents);
+
+    closeAddRecordModal();
+    showToast('办理记录已保存', 'success');
+
+    const detailModal = document.getElementById('detailModal');
+    if (detailModal.classList.contains('show')) {
+        viewDocument(docId);
+    }
+    renderDocumentList();
+}
+
+function openCompleteModal(docId) {
+    document.getElementById('completeDocId').value = docId;
+    document.getElementById('completeRemark').value = '';
+    document.getElementById('completeHandler').value = '';
+    document.getElementById('completeModal').classList.add('show');
+}
+
+function closeCompleteModal() {
+    document.getElementById('completeModal').classList.remove('show');
+}
+
+function confirmComplete(e) {
+    e.preventDefault();
+    const docId = document.getElementById('completeDocId').value;
+    const remark = document.getElementById('completeRemark').value.trim();
+    const handler = document.getElementById('completeHandler').value.trim();
+
+    if (!remark) {
+        showToast('请输入办结说明', 'error');
+        return;
+    }
+
+    const documents = getDocuments();
+    const index = documents.findIndex(function(d) { return d.id === docId; });
+    if (index === -1) {
+        showToast('收文不存在', 'error');
+        return;
+    }
+
+    const doc = documents[index];
+    if (doc.completed) {
+        showToast('该收文已办结', 'info');
+        closeCompleteModal();
+        return;
+    }
+
+    if (!doc.processingRecords) {
+        doc.processingRecords = [];
+    }
+
+    const completionRecord = {
+        id: generateId(),
+        type: 'completion',
+        content: remark,
+        handler: handler,
+        createdAt: new Date().toISOString()
+    };
+
+    doc.processingRecords.push(completionRecord);
+    doc.completed = true;
+    doc.completedAt = completionRecord.createdAt;
+    doc.completedRemark = remark;
+
+    documents[index] = doc;
+    saveDocuments(documents);
+
+    const selIndex = selectedIds.indexOf(docId);
+    if (selIndex > -1) {
+        selectedIds.splice(selIndex, 1);
+    }
+
+    closeCompleteModal();
+    closeDetailModal();
+    showToast('收文已办结', 'success');
+    updateStats();
+    renderDocumentList();
 }
 
 function deleteDocument(id) {
@@ -727,7 +957,7 @@ function viewDocument(id) {
         ${doc.completed ? `
         <div class="detail-item">
             <span class="detail-label">办结时间</span>
-            <span class="detail-value">${formatDate(doc.completedAt)}</span>
+            <span class="detail-value">${formatDateTime(doc.completedAt)}</span>
         </div>
         ` : ''}
         ${doc.remark ? `
@@ -736,6 +966,13 @@ function viewDocument(id) {
             <span class="detail-value">${escapeHtml(doc.remark)}</span>
         </div>
         ` : ''}
+        <div class="detail-section">
+            <div class="detail-section-header">
+                <span class="detail-section-title">📝 办理记录</span>
+                <span class="detail-section-count">共 ${(doc.processingRecords || []).length} 条</span>
+            </div>
+            ${renderProcessingRecords(doc)}
+        </div>
     `;
 
     const detailActions = document.getElementById('detailActions');
@@ -744,7 +981,8 @@ function viewDocument(id) {
             <button class="btn btn-default" onclick="closeDetailModal()">关闭</button>
             <button class="btn btn-danger" onclick="deleteDocument('${doc.id}'); closeDetailModal();">删除</button>
             <button class="btn btn-primary" onclick="editDocument('${doc.id}'); closeDetailModal();">编辑</button>
-            <button class="btn btn-success" onclick="completeDocument('${doc.id}'); closeDetailModal();">标记办结</button>
+            <button class="btn btn-info" onclick="openAddRecordModal('${doc.id}')">追加进展</button>
+            <button class="btn btn-success" onclick="openCompleteModal('${doc.id}')">标记办结</button>
         `;
     } else {
         detailActions.innerHTML = `
@@ -1062,6 +1300,8 @@ function confirmImport() {
             remark: item.data.remark || '',
             completed: false,
             completedAt: null,
+            completedRemark: '',
+            processingRecords: [],
             createdAt: new Date().toISOString()
         };
     });
@@ -1314,6 +1554,8 @@ function processRestoreFile(file) {
                     remark: doc.remark || '',
                     completed: doc.completed || false,
                     completedAt: doc.completedAt || null,
+                    completedRemark: doc.completedRemark || '',
+                    processingRecords: doc.processingRecords || [],
                     createdAt: doc.createdAt || null
                 };
             });
@@ -1555,6 +1797,8 @@ function confirmRestore() {
                 remark: item.remark || '',
                 completed: item.completed || false,
                 completedAt: item.completedAt || null,
+                completedRemark: item.completedRemark || '',
+                processingRecords: item.processingRecords || [],
                 createdAt: item.createdAt || new Date().toISOString()
             };
             finalDocs.push(newDoc);
@@ -1565,7 +1809,9 @@ function confirmRestore() {
                 finalDocs[index] = {
                     ...matchDoc,
                     ...item,
-                    id: matchDoc.id
+                    id: matchDoc.id,
+                    processingRecords: item.processingRecords || matchDoc.processingRecords || [],
+                    completedRemark: item.completedRemark || matchDoc.completedRemark || ''
                 };
                 overwriteCount++;
             }
@@ -1645,6 +1891,8 @@ function init() {
             closeImportModal();
             closeRestoreModal();
             closeExportMenu();
+            closeAddRecordModal();
+            closeCompleteModal();
         }
     });
 
