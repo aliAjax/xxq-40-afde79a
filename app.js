@@ -983,11 +983,11 @@ function filterDocuments(documents, tab, keyword, filter) {
     }
 
     if (filter.deadlineStart) {
-        filtered = filtered.filter(doc => doc.deadline >= filter.deadlineStart);
+        filtered = filtered.filter(doc => getEffectiveDeadline(doc) >= filter.deadlineStart);
     }
 
     if (filter.deadlineEnd) {
-        filtered = filtered.filter(doc => doc.deadline <= filter.deadlineEnd);
+        filtered = filtered.filter(doc => getEffectiveDeadline(doc) <= filter.deadlineEnd);
     }
 
     const statusOrder = {};
@@ -1359,6 +1359,7 @@ function executeBatchAction(e) {
     selectedIds = [];
     closeBatchConfirmModal();
     updateStats();
+    renderReminderCenter();
     renderDocumentList();
 }
 
@@ -1790,6 +1791,7 @@ function executeFlowAction(e) {
         showToast('操作成功', 'success');
         closeFlowModal();
         updateStats();
+        renderReminderCenter();
         renderDocumentList();
 
         const detailModal = document.getElementById('detailModal');
@@ -1964,7 +1966,22 @@ function saveDocument(e) {
     if (id) {
         const index = documents.findIndex(d => d.id === id);
         if (index !== -1) {
-            documents[index] = { ...documents[index], ...docData };
+            const oldDoc = documents[index];
+            const updatedDoc = { ...oldDoc, ...docData };
+            if (oldDoc.deadline !== docData.deadline && oldDoc.extendedDeadline) {
+                updatedDoc.extendedDeadline = '';
+                if (!updatedDoc.reminderHistory) {
+                    updatedDoc.reminderHistory = [];
+                }
+                updatedDoc.reminderHistory.push({
+                    id: generateId(),
+                    type: 'reset_extend',
+                    oldDeadline: oldDoc.deadline,
+                    newDeadline: docData.deadline,
+                    createdAt: new Date().toISOString()
+                });
+            }
+            documents[index] = updatedDoc;
             showToast('收文更新成功', 'success');
         }
     } else {
@@ -1999,6 +2016,7 @@ function saveDocument(e) {
     saveDocuments(documents);
     closeModal();
     updateStats();
+    renderReminderCenter();
     renderDocumentList();
 }
 
@@ -2127,6 +2145,7 @@ function confirmComplete(e) {
     closeDetailModal();
     showToast('收文已办结', 'success');
     updateStats();
+    renderReminderCenter();
     renderDocumentList();
 }
 
@@ -2143,6 +2162,7 @@ function deleteDocument(id) {
     }
 
     updateStats();
+    renderReminderCenter();
     renderDocumentList();
     showToast('收文已删除', 'success');
 }
@@ -3552,6 +3572,11 @@ function confirmSnooze() {
     const snoozeDate = document.getElementById('snoozeDate').value;
     if (!snoozeDate) {
         showToast('请选择暂不提醒的日期', 'error');
+        return;
+    }
+    const today = formatDateInput(getToday());
+    if (snoozeDate < today) {
+        showToast('暂不提醒日期不能早于今天', 'error');
         return;
     }
     if (snoozeReminder(currentReminderDocId, snoozeDate)) {
