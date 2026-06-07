@@ -3987,28 +3987,67 @@ function closeDetailModal() {
     document.getElementById('detailModal').classList.remove('show');
 }
 
-let importParsedData = [];
-let importValidData = [];
+let currentWizardStep = 1;
+let wizardCsvHeaders = [];
+let wizardCsvRawData = [];
+let wizardFieldMapping = {};
+let wizardMappedData = [];
+let wizardValidatedData = [];
 let currentImportTab = 'paste';
+let currentPreviewFilter = 'all';
+
+const WIZARD_SYSTEM_FIELDS = [
+    { key: 'fromUnit', label: '来文单位', required: true, type: 'text' },
+    { key: 'docNumber', label: '文号', required: true, type: 'text' },
+    { key: 'title', label: '标题', required: true, type: 'text' },
+    { key: 'receiveDate', label: '收文日期', required: true, type: 'date' },
+    { key: 'urgency', label: '紧急程度', required: true, type: 'select', options: URGENCY_LIST },
+    { key: 'proposedDepartment', label: '拟办科室', required: false, type: 'select', options: DEPARTMENT_LIST },
+    { key: 'undertakingDepartment', label: '承办科室', required: true, type: 'select', options: DEPARTMENT_LIST },
+    { key: 'coDepartments', label: '协办科室', required: false, type: 'multi', options: DEPARTMENT_LIST },
+    { key: 'deadline', label: '办理期限', required: true, type: 'date' },
+    { key: 'remark', label: '备注', required: false, type: 'text' }
+];
+
+const HEADER_ALIAS_MAP = {
+    'fromUnit': ['来文单位', '发文单位', '来文机关', '发文机关', '单位', 'fromUnit', 'from_unit'],
+    'docNumber': ['文号', '文件号', '发文字号', '文號', 'docNumber', 'doc_number', 'document_number'],
+    'title': ['标题', '文件标题', '题目', 'title', 'subject'],
+    'receiveDate': ['收文日期', '收文时间', '接收日期', '收到日期', 'receiveDate', 'receive_date', 'received_date'],
+    'urgency': ['紧急程度', '紧急', '急缓', 'priority', 'urgency', 'urgent_level'],
+    'proposedDepartment': ['拟办科室', '拟办部门', '拟办', 'proposedDepartment', 'proposed_department'],
+    'undertakingDepartment': ['承办科室', '承办部门', '主办科室', '主办部门', '承办', 'department', 'undertaking_department'],
+    'coDepartments': ['协办科室', '协办部门', '会办科室', '会办部门', '协办', 'coDepartments', 'co_departments', 'assist_departments'],
+    'deadline': ['办理期限', '期限', '截止日期', '到期日期', '办结期限', 'deadline', 'due_date'],
+    'remark': ['备注', '说明', '附注', 'remark', 'note', 'comments']
+};
 
 function openImportModal() {
-    importParsedData = [];
-    importValidData = [];
+    currentWizardStep = 1;
+    wizardCsvHeaders = [];
+    wizardCsvRawData = [];
+    wizardFieldMapping = {};
+    wizardMappedData = [];
+    wizardValidatedData = [];
+    currentPreviewFilter = 'all';
+
     document.getElementById('importCsvText').value = '';
     document.getElementById('importFileInput').value = '';
     document.getElementById('selectedFileName').style.display = 'none';
-    document.getElementById('importPreviewSection').style.display = 'none';
-    const confirmBtn = document.getElementById('importConfirmBtn');
-    confirmBtn.disabled = true;
-    confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认导入';
+
     switchImportTab('paste');
+    updateWizardSteps();
+    updateWizardNavButtons();
     document.getElementById('importModal').classList.add('show');
 }
 
 function closeImportModal() {
     document.getElementById('importModal').classList.remove('show');
-    importParsedData = [];
-    importValidData = [];
+    wizardCsvHeaders = [];
+    wizardCsvRawData = [];
+    wizardFieldMapping = {};
+    wizardMappedData = [];
+    wizardValidatedData = [];
 }
 
 function switchImportTab(tab) {
@@ -4021,10 +4060,114 @@ function switchImportTab(tab) {
     document.getElementById('importTabPaste').style.display = tab === 'paste' ? 'block' : 'none';
     document.getElementById('importTabFile').style.display = tab === 'file' ? 'block' : 'none';
 
-    document.getElementById('importPreviewSection').style.display = 'none';
-    document.getElementById('importConfirmBtn').disabled = true;
-    importParsedData = [];
-    importValidData = [];
+    wizardCsvHeaders = [];
+    wizardCsvRawData = [];
+}
+
+function goToWizardStep(step) {
+    if (step === 1) {
+        currentWizardStep = 1;
+    } else if (step === 2 && wizardCsvHeaders.length > 0) {
+        currentWizardStep = 2;
+    } else if (step === 3 && Object.keys(wizardFieldMapping).length > 0) {
+        applyFieldMapping();
+        currentWizardStep = 3;
+    } else if (step === 4 && wizardValidatedData.length > 0) {
+        currentWizardStep = 4;
+        updateImportConfirmSummary();
+    } else {
+        showToast('请先完成上一步', 'warning');
+        return;
+    }
+
+    updateWizardSteps();
+    renderWizardStepContent();
+    updateWizardNavButtons();
+}
+
+function nextWizardStep() {
+    if (currentWizardStep === 1) {
+        parseWizardCsvData();
+    } else if (currentWizardStep === 2) {
+        if (!validateFieldMapping()) {
+            return;
+        }
+        applyFieldMapping();
+        validateWizardData();
+        currentWizardStep = 3;
+        updateWizardSteps();
+        renderWizardStepContent();
+        updateWizardNavButtons();
+    } else if (currentWizardStep === 3) {
+        currentWizardStep = 4;
+        updateImportConfirmSummary();
+        updateWizardSteps();
+        renderWizardStepContent();
+        updateWizardNavButtons();
+    }
+}
+
+function prevWizardStep() {
+    if (currentWizardStep > 1) {
+        currentWizardStep--;
+        updateWizardSteps();
+        renderWizardStepContent();
+        updateWizardNavButtons();
+    }
+}
+
+function updateWizardSteps() {
+    const steps = document.querySelectorAll('.wizard-step');
+    steps.forEach(function(step) {
+        const stepNum = parseInt(step.getAttribute('data-step'));
+        step.classList.remove('active', 'completed');
+        if (stepNum < currentWizardStep) {
+            step.classList.add('completed');
+        } else if (stepNum === currentWizardStep) {
+            step.classList.add('active');
+        }
+    });
+
+    const lines = document.querySelectorAll('.wizard-step-line');
+    lines.forEach(function(line, index) {
+        line.classList.remove('completed');
+        if (index + 1 < currentWizardStep) {
+            line.classList.add('completed');
+        }
+    });
+}
+
+function renderWizardStepContent() {
+    for (let i = 1; i <= 4; i++) {
+        const stepEl = document.getElementById('wizardStep' + i);
+        if (stepEl) {
+            stepEl.style.display = i === currentWizardStep ? 'block' : 'none';
+        }
+    }
+}
+
+function updateWizardNavButtons() {
+    const prevBtn = document.getElementById('wizardPrevBtn');
+    const nextBtn = document.getElementById('wizardNextBtn');
+    const importBtn = document.getElementById('wizardImportBtn');
+
+    prevBtn.style.display = currentWizardStep > 1 ? 'inline-flex' : 'none';
+    nextBtn.style.display = currentWizardStep < 4 ? 'inline-flex' : 'none';
+    importBtn.style.display = currentWizardStep === 4 ? 'inline-flex' : 'none';
+
+    if (currentWizardStep === 1) {
+        const hasData = currentImportTab === 'paste'
+            ? document.getElementById('importCsvText').value.trim() !== ''
+            : (document.getElementById('selectedFileName').style.display !== 'none');
+        nextBtn.disabled = !hasData;
+    } else if (currentWizardStep === 2) {
+        const hasRequiredMappings = WIZARD_SYSTEM_FIELDS.filter(function(f) {
+            return f.required && wizardFieldMapping[f.key];
+        }).length > 0;
+        nextBtn.disabled = !hasRequiredMappings;
+    } else {
+        nextBtn.disabled = false;
+    }
 }
 
 function parseCsvLine(line) {
@@ -4052,116 +4195,19 @@ function parseCsvLine(line) {
     return result;
 }
 
-function parseCsvText() {
-    const csvText = document.getElementById('importCsvText').value.trim();
-    if (!csvText) {
-        showToast('请输入CSV内容', 'error');
-        return;
-    }
-    processCsvData(csvText);
-}
-
-function handleFileSelect(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    processFile(file);
-}
-
-function processFile(file) {
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-        showToast('请选择CSV格式文件', 'error');
+function parseWizardCsvData() {
+    let csvText = '';
+    if (currentImportTab === 'paste') {
+        csvText = document.getElementById('importCsvText').value.trim();
+        if (!csvText) {
+            showToast('请输入CSV内容', 'error');
+            return;
+        }
+    } else if (currentImportTab === 'file') {
+        showToast('请先选择CSV文件', 'error');
         return;
     }
 
-    const fileNameEl = document.getElementById('selectedFileName');
-    const fileSizeKb = (file.size / 1024).toFixed(2);
-    fileNameEl.textContent = '已选择文件：' + file.name + '（' + fileSizeKb + ' KB）';
-    fileNameEl.style.display = 'block';
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const content = e.target.result;
-        processCsvData(content);
-    };
-    reader.onerror = function() {
-        showToast('文件读取失败', 'error');
-    };
-    reader.readAsText(file, 'UTF-8');
-}
-
-function isValidDate(dateStr) {
-    if (!dateStr) return false;
-    const date = new Date(dateStr);
-    return !isNaN(date.getTime()) && dateStr.match(/^\d{4}-\d{2}-\d{2}$/);
-}
-
-function isValidUrgency(urgency) {
-    return ['普通', '加急', '特急'].includes(urgency);
-}
-
-function isValidDepartment(dept) {
-    const validDepts = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
-    return validDepts.includes(dept);
-}
-
-function validateImportRow(row, index, allRows, existingDocs) {
-    const errors = [];
-
-    if (!row.fromUnit) {
-        errors.push('来文单位不能为空');
-    }
-    if (!row.docNumber) {
-        errors.push('文号不能为空');
-    }
-    if (!row.title) {
-        errors.push('标题不能为空');
-    }
-    if (!row.receiveDate) {
-        errors.push('收文日期不能为空');
-    } else if (!isValidDate(row.receiveDate)) {
-        errors.push('收文日期格式错误');
-    }
-    if (!row.urgency) {
-        errors.push('紧急程度不能为空');
-    } else if (!isValidUrgency(row.urgency)) {
-        errors.push('紧急程度无效');
-    }
-    if (!row.department) {
-        errors.push('承办科室不能为空');
-    } else if (!isValidDepartment(row.department)) {
-        errors.push('承办科室无效');
-    }
-    if (row.deadline && !isValidDate(row.deadline)) {
-        errors.push('办理期限格式错误');
-    }
-
-    if (!row.deadline && row.receiveDate && isValidDate(row.receiveDate) && row.urgency && isValidUrgency(row.urgency)) {
-        // 将自动根据紧急程度计算办理期限
-    }
-
-    if (row.docNumber) {
-        const dupInImport = allRows.filter(function(r, i) {
-            return i !== index && r.docNumber && r.docNumber === row.docNumber;
-        });
-        if (dupInImport.length > 0) {
-            errors.push('导入数据内文号重复');
-        }
-
-        const dupInExisting = existingDocs.filter(function(d) {
-            return d.docNumber === row.docNumber;
-        });
-        if (dupInExisting.length > 0) {
-            errors.push('与现有数据文号重复');
-        }
-    }
-
-    return {
-        valid: errors.length === 0,
-        errors: errors
-    };
-}
-
-function processCsvData(csvText) {
     let text = csvText;
     if (text.charCodeAt(0) === 0xFEFF) {
         text = text.slice(1);
@@ -4175,121 +4221,548 @@ function processCsvData(csvText) {
         return;
     }
 
-    const dataLines = lines.slice(1);
-    const parsedRows = [];
+    wizardCsvHeaders = parseCsvLine(lines[0]);
+    wizardCsvRawData = [];
 
-    for (let i = 0; i < dataLines.length; i++) {
-        const values = parseCsvLine(dataLines[i]);
-        const row = {
-            fromUnit: values[0] || '',
-            docNumber: values[1] || '',
-            title: values[2] || '',
-            receiveDate: values[3] || '',
-            urgency: values[4] || '',
-            department: values[5] || '',
-            deadline: values[6] || '',
-            remark: values[7] || ''
-        };
-        parsedRows.push(row);
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCsvLine(lines[i]);
+        const row = {};
+        wizardCsvHeaders.forEach(function(header, idx) {
+            row[header] = values[idx] || '';
+        });
+        row._rowIndex = i + 1;
+        wizardCsvRawData.push(row);
     }
 
-    const existingDocs = getDocuments();
-    const validatedRows = parsedRows.map(function(row, index) {
-        const validation = validateImportRow(row, index, parsedRows, existingDocs);
-        return {
-            rowIndex: index + 2,
-            data: row,
-            valid: validation.valid,
-            errors: validation.errors
-        };
-    });
+    autoMapFields();
+    renderFieldMapping();
+    updateMappingPreview();
 
-    importParsedData = validatedRows;
-    importValidData = validatedRows.filter(function(r) {
-        return r.valid;
-    });
-
-    renderImportPreview();
+    currentWizardStep = 2;
+    updateWizardSteps();
+    renderWizardStepContent();
+    updateWizardNavButtons();
 }
 
-function renderImportPreview() {
-    const previewSection = document.getElementById('importPreviewSection');
-    const tbody = document.getElementById('importPreviewBody');
-    const totalCount = importParsedData.length;
-    const validCount = importValidData.length;
-    const invalidCount = totalCount - validCount;
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    processWizardFile(file);
+}
 
-    document.getElementById('importTotalCount').textContent = totalCount;
-    document.getElementById('importValidCount').textContent = validCount;
-    document.getElementById('importInvalidCount').textContent = invalidCount;
-
-    const errorSummaryEl = document.getElementById('importErrorSummary');
-    if (invalidCount > 0) {
-        const errorTypes = {};
-        importParsedData.forEach(function(item) {
-            item.errors.forEach(function(err) {
-                errorTypes[err] = (errorTypes[err] || 0) + 1;
-            });
-        });
-        const errorHtml = Object.keys(errorTypes).map(function(msg) {
-            return '<span class="import-error-tag">' + msg + ' (' + errorTypes[msg] + '条)</span>';
-        }).join('');
-        errorSummaryEl.innerHTML = '<div class="import-error-title">问题汇总：</div>' + errorHtml;
-        errorSummaryEl.style.display = 'block';
-    } else {
-        errorSummaryEl.style.display = 'none';
+function processWizardFile(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        showToast('请选择CSV格式文件', 'error');
+        return;
     }
 
-    tbody.innerHTML = importParsedData.map(function(item) {
-        const rowClass = item.valid ? 'row-valid' : 'row-invalid';
-        const statusText = item.valid ? '有效' : '无效';
-        const statusClass = item.valid ? 'status-valid' : 'status-invalid';
-        const errorTooltip = item.errors.join('；');
+    const fileNameEl = document.getElementById('selectedFileName');
+    const fileSizeKb = (file.size / 1024).toFixed(2);
+    fileNameEl.textContent = '已选择文件：' + file.name + '（' + fileSizeKb + ' KB）';
+    fileNameEl.style.display = 'block';
 
-        const deadlineHasError = item.data.deadline && !isValidDate(item.data.deadline);
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const content = e.target.result;
+        let text = content;
+        if (text.charCodeAt(0) === 0xFEFF) {
+            text = text.slice(1);
+        }
+        const lines = text.split(/\r?\n/).filter(function(line) {
+            return line.trim() !== '';
+        });
+
+        if (lines.length < 2) {
+            showToast('CSV文件至少需要包含表头和一行数据', 'error');
+            return;
+        }
+
+        wizardCsvHeaders = parseCsvLine(lines[0]);
+        wizardCsvRawData = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = parseCsvLine(lines[i]);
+            const row = {};
+            wizardCsvHeaders.forEach(function(header, idx) {
+                row[header] = values[idx] || '';
+            });
+            row._rowIndex = i + 1;
+            wizardCsvRawData.push(row);
+        }
+
+        autoMapFields();
+        renderFieldMapping();
+        updateMappingPreview();
+
+        currentWizardStep = 2;
+        updateWizardSteps();
+        renderWizardStepContent();
+        updateWizardNavButtons();
+    };
+    reader.onerror = function() {
+        showToast('文件读取失败', 'error');
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
+function autoMapFields() {
+    wizardFieldMapping = {};
+
+    WIZARD_SYSTEM_FIELDS.forEach(function(field) {
+        const aliases = HEADER_ALIAS_MAP[field.key] || [];
+        for (let i = 0; i < aliases.length; i++) {
+            const alias = aliases[i];
+            const matchedHeader = wizardCsvHeaders.find(function(h) {
+                return h.toLowerCase() === alias.toLowerCase() ||
+                       h.replace(/\s/g, '') === alias.replace(/\s/g, '');
+            });
+            if (matchedHeader) {
+                wizardFieldMapping[field.key] = matchedHeader;
+                break;
+            }
+        }
+    });
+}
+
+function renderFieldMapping() {
+    const listEl = document.getElementById('fieldMappingList');
+
+    const html = WIZARD_SYSTEM_FIELDS.map(function(field) {
+        const currentMapping = wizardFieldMapping[field.key] || '';
+        const requiredMark = field.required ? '<span class="required">*</span>' : '';
+
+        const options = ['<option value="">不导入</option>']
+            .concat(wizardCsvHeaders.map(function(h) {
+                return '<option value="' + escapeHtml(h) + '"' + (currentMapping === h ? ' selected' : '') + '>' + escapeHtml(h) + '</option>';
+            })).join('');
+
+        return '<div class="field-mapping-item" data-field="' + field.key + '">' +
+            '<div class="mapping-col mapping-col-csv">' +
+                '<select class="form-input mapping-select" onchange="setFieldMapping(\'' + field.key + '\', this.value)">' +
+                    options +
+                '</select>' +
+            '</div>' +
+            '<div class="mapping-col-arrow">→</div>' +
+            '<div class="mapping-col mapping-col-system">' +
+                '<span class="system-field-label">' + field.label + '</span>' +
+                requiredMark +
+                (field.required ? '<span class="field-badge required-badge">必填</span>' : '<span class="field-badge optional-badge">选填</span>') +
+            '</div>' +
+        '</div>';
+    }).join('');
+
+    listEl.innerHTML = html;
+}
+
+function setFieldMapping(fieldKey, header) {
+    if (header) {
+        const otherKeys = Object.keys(wizardFieldMapping).filter(function(k) {
+            return k !== fieldKey && wizardFieldMapping[k] === header;
+        });
+        otherKeys.forEach(function(k) {
+            delete wizardFieldMapping[k];
+        });
+        wizardFieldMapping[fieldKey] = header;
+    } else {
+        delete wizardFieldMapping[fieldKey];
+    }
+    renderFieldMapping();
+    updateMappingPreview();
+    updateWizardNavButtons();
+}
+
+function validateFieldMapping() {
+    const requiredFields = WIZARD_SYSTEM_FIELDS.filter(function(f) { return f.required; });
+    const missingRequired = requiredFields.filter(function(f) {
+        return !wizardFieldMapping[f.key];
+    });
+
+    if (missingRequired.length > 0) {
+        const names = missingRequired.map(function(f) { return f.label; }).join('、');
+        showToast('请为必填字段设置映射：' + names, 'error');
+        return false;
+    }
+    return true;
+}
+
+function updateMappingPreview() {
+    const previewData = wizardCsvRawData.slice(0, 3);
+    const tableEl = document.getElementById('mappingPreviewTable');
+
+    let theadHtml = '<tr><th style="width: 50px;">行号</th>';
+    WIZARD_SYSTEM_FIELDS.forEach(function(field) {
+        if (wizardFieldMapping[field.key]) {
+            theadHtml += '<th>' + field.label + '</th>';
+        }
+    });
+    theadHtml += '</tr>';
+
+    let tbodyHtml = '';
+    previewData.forEach(function(row) {
+        tbodyHtml += '<tr><td>' + row._rowIndex + '</td>';
+        WIZARD_SYSTEM_FIELDS.forEach(function(field) {
+            if (wizardFieldMapping[field.key]) {
+                let value = row[wizardFieldMapping[field.key]] || '';
+                if (field.key === 'coDepartments' && value) {
+                    const separator = document.getElementById('coDeptSeparator').value || ';';
+                    value = value.split(separator).map(function(s) { return s.trim(); }).filter(Boolean).join('、');
+                }
+                tbodyHtml += '<td>' + escapeHtml(value || '-') + '</td>';
+            }
+        });
+        tbodyHtml += '</tr>';
+    });
+
+    tableEl.innerHTML = '<thead>' + theadHtml + '</thead><tbody>' + tbodyHtml + '</tbody>';
+}
+
+function applyFieldMapping() {
+    wizardMappedData = wizardCsvRawData.map(function(row) {
+        const mapped = { _rowIndex: row._rowIndex };
+        WIZARD_SYSTEM_FIELDS.forEach(function(field) {
+            const header = wizardFieldMapping[field.key];
+            if (header) {
+                let value = row[header] || '';
+                if (field.key === 'coDepartments' && value) {
+                    const separator = document.getElementById('coDeptSeparator').value || ';';
+                    value = value.split(separator).map(function(s) { return s.trim(); }).filter(Boolean);
+                }
+                mapped[field.key] = value;
+            } else {
+                mapped[field.key] = field.key === 'coDepartments' ? [] : '';
+            }
+        });
+        return mapped;
+    });
+}
+
+function isValidDate(dateStr) {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return false;
+    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return true;
+    if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) return true;
+    if (dateStr.match(/^\d{4}年\d{1,2}月\d{1,2}日$/)) return true;
+    return false;
+}
+
+function normalizeDate(dateStr) {
+    if (!dateStr) return '';
+    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
+    if (dateStr.match(/^\d{4}\/\d{2}\/\d{2}$/)) {
+        return dateStr.replace(/\//g, '-');
+    }
+    const match = dateStr.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日$/);
+    if (match) {
+        return match[1] + '-' + String(match[2]).padStart(2, '0') + '-' + String(match[3]).padStart(2, '0');
+    }
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime())) {
+        return formatDateInput(date);
+    }
+    return '';
+}
+
+function isValidUrgency(urgency) {
+    return URGENCY_LIST.includes(urgency);
+}
+
+function isValidDepartment(dept) {
+    return DEPARTMENT_LIST.includes(dept);
+}
+
+function validateWizardData() {
+    const existingDocs = getDocuments();
+    const docNumbers = wizardMappedData.map(function(r) { return r.docNumber; });
+
+    wizardValidatedData = wizardMappedData.map(function(row, index) {
+        const errors = [];
+        const warnings = [];
+
+        if (!row.fromUnit) {
+            errors.push('来文单位不能为空');
+        }
+        if (!row.docNumber) {
+            errors.push('文号不能为空');
+        }
+        if (!row.title) {
+            errors.push('标题不能为空');
+        }
+
+        if (!row.receiveDate) {
+            errors.push('收文日期不能为空');
+        } else if (!isValidDate(row.receiveDate)) {
+            errors.push('收文日期格式错误');
+        }
+
+        if (!row.urgency) {
+            errors.push('紧急程度不能为空');
+        } else if (!isValidUrgency(row.urgency)) {
+            errors.push('紧急程度无效（仅支持：普通、加急、特急）');
+        }
+
+        if (row.proposedDepartment && !isValidDepartment(row.proposedDepartment)) {
+            warnings.push('拟办科室"' + row.proposedDepartment + '"未知');
+        }
+
+        if (!row.undertakingDepartment) {
+            errors.push('承办科室不能为空');
+        } else if (!isValidDepartment(row.undertakingDepartment)) {
+            errors.push('承办科室无效');
+        }
+
+        if (row.coDepartments && row.coDepartments.length > 0) {
+            const invalidCoDepts = row.coDepartments.filter(function(d) {
+                return !isValidDepartment(d);
+            });
+            if (invalidCoDepts.length > 0) {
+                warnings.push('协办科室存在未知科室：' + invalidCoDepts.join('、'));
+            }
+        }
+
+        if (!row.deadline) {
+            if (row.receiveDate && isValidDate(row.receiveDate) && row.urgency && isValidUrgency(row.urgency)) {
+                warnings.push('办理期限将根据紧急程度自动计算');
+            } else {
+                errors.push('办理期限不能为空');
+            }
+        } else if (!isValidDate(row.deadline)) {
+            errors.push('办理期限格式错误');
+        }
+
+        if (row.docNumber) {
+            const dupInImport = docNumbers.filter(function(dn, i) {
+                return i !== index && dn && dn === row.docNumber;
+            });
+            if (dupInImport.length > 0) {
+                errors.push('导入数据内文号重复');
+            }
+
+            const dupInExisting = existingDocs.filter(function(d) {
+                return d.docNumber === row.docNumber;
+            });
+            if (dupInExisting.length > 0) {
+                warnings.push('与现有数据文号重复');
+            }
+        }
+
+        let normalizedRow = { ...row };
+        if (row.receiveDate && isValidDate(row.receiveDate)) {
+            normalizedRow.receiveDate = normalizeDate(row.receiveDate);
+        }
+        if (row.deadline && isValidDate(row.deadline)) {
+            normalizedRow.deadline = normalizeDate(row.deadline);
+        }
+
+        const valid = errors.length === 0;
+        const hasWarning = warnings.length > 0;
+
+        return {
+            rowIndex: row._rowIndex,
+            data: normalizedRow,
+            valid: valid,
+            hasWarning: hasWarning,
+            errors: errors,
+            warnings: warnings
+        };
+    });
+
+    renderWizardPreview();
+}
+
+function filterPreviewRows(filter) {
+    currentPreviewFilter = filter;
+    document.querySelectorAll('.preview-filter-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    const btns = document.querySelectorAll('.preview-filter-btn');
+    const filterMap = { 'all': 0, 'valid': 1, 'warning': 2, 'invalid': 3 };
+    if (btns[filterMap[filter]]) {
+        btns[filterMap[filter]].classList.add('active');
+    }
+    renderWizardPreview();
+}
+
+function renderWizardPreview() {
+    const tbody = document.getElementById('wizardPreviewBody');
+    const totalCount = wizardValidatedData.length;
+    const validCount = wizardValidatedData.filter(function(r) { return r.valid && !r.hasWarning; }).length;
+    const warningCount = wizardValidatedData.filter(function(r) { return r.valid && r.hasWarning; }).length;
+    const invalidCount = wizardValidatedData.filter(function(r) { return !r.valid; }).length;
+
+    document.getElementById('wizardTotalCount').textContent = totalCount;
+    document.getElementById('wizardValidCount').textContent = validCount;
+    document.getElementById('wizardWarningCount').textContent = warningCount;
+    document.getElementById('wizardInvalidCount').textContent = invalidCount;
+
+    renderIssueSummary();
+
+    let displayData = wizardValidatedData;
+    if (currentPreviewFilter === 'valid') {
+        displayData = wizardValidatedData.filter(function(r) { return r.valid && !r.hasWarning; });
+    } else if (currentPreviewFilter === 'warning') {
+        displayData = wizardValidatedData.filter(function(r) { return r.valid && r.hasWarning; });
+    } else if (currentPreviewFilter === 'invalid') {
+        displayData = wizardValidatedData.filter(function(r) { return !r.valid; });
+    }
+
+    tbody.innerHTML = displayData.map(function(item) {
+        let rowClass = 'row-valid';
+        let statusText = '有效';
+        let statusClass = 'status-valid';
+        const allIssues = item.errors.concat(item.warnings).join('；');
+
+        if (!item.valid) {
+            rowClass = 'row-invalid';
+            statusText = '无效';
+            statusClass = 'status-invalid';
+        } else if (item.hasWarning) {
+            rowClass = 'row-warning';
+            statusText = '有警告';
+            statusClass = 'status-warning';
+        }
+
+        const coDeptDisplay = Array.isArray(item.data.coDepartments)
+            ? item.data.coDepartments.join('、') || '-'
+            : '-';
+
         let deadlineDisplay = escapeHtml(item.data.deadline) || '-';
-        if (!item.data.deadline && item.data.receiveDate && isValidDate(item.data.receiveDate) && item.data.urgency && isValidUrgency(item.data.urgency)) {
+        if (!item.data.deadline && item.data.receiveDate && item.data.urgency && isValidUrgency(item.data.urgency)) {
             const days = getDeadlineDaysByUrgency(item.data.urgency);
             const deadlineDate = new Date(item.data.receiveDate);
             deadlineDate.setDate(deadlineDate.getDate() + days);
             deadlineDisplay = '<span class="auto-calc-hint">' + formatDate(formatDateInput(deadlineDate)) + ' (自动计算)</span>';
         }
 
-        return '<tr class="' + rowClass + '" title="' + escapeHtml(errorTooltip) + '">' +
+        return '<tr class="' + rowClass + '" title="' + escapeHtml(allIssues) + '">' +
             '<td>' + item.rowIndex + '</td>' +
             '<td class="' + (!item.data.fromUnit ? 'cell-error' : '') + '">' + (escapeHtml(item.data.fromUnit) || '-') + '</td>' +
-            '<td class="' + (!item.data.docNumber ? 'cell-error' : '') + '">' + (escapeHtml(item.data.docNumber) || '-') + '</td>' +
+            '<td class="' + (!item.data.docNumber ? 'cell-error' : (item.warnings.some(function(w) { return w.indexOf('文号重复') >= 0; }) ? 'cell-warning' : '')) + '">' + (escapeHtml(item.data.docNumber) || '-') + '</td>' +
             '<td class="' + (!item.data.title ? 'cell-error' : '') + '">' + (escapeHtml(item.data.title) || '-') + '</td>' +
             '<td class="' + (!item.data.receiveDate || !isValidDate(item.data.receiveDate) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.receiveDate) || '-') + '</td>' +
             '<td class="' + (!item.data.urgency || !isValidUrgency(item.data.urgency) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.urgency) || '-') + '</td>' +
-            '<td class="' + (!item.data.department || !isValidDepartment(item.data.department) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.department) || '-') + '</td>' +
-            '<td class="' + (deadlineHasError ? 'cell-error' : '') + '">' + deadlineDisplay + '</td>' +
+            '<td class="' + (item.warnings.some(function(w) { return w.indexOf('拟办科室') >= 0 && w.indexOf('未知') >= 0; }) ? 'cell-warning' : '') + '">' + (escapeHtml(item.data.proposedDepartment) || '-') + '</td>' +
+            '<td class="' + (!item.data.undertakingDepartment || !isValidDepartment(item.data.undertakingDepartment) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.undertakingDepartment) || '-') + '</td>' +
+            '<td class="' + (item.warnings.some(function(w) { return w.indexOf('协办科室') >= 0 && w.indexOf('未知') >= 0; }) ? 'cell-warning' : '') + '">' + escapeHtml(coDeptDisplay) + '</td>' +
+            '<td class="' + (item.data.deadline && !isValidDate(item.data.deadline) ? 'cell-error' : '') + '">' + deadlineDisplay + '</td>' +
             '<td>' + (escapeHtml(item.data.remark) || '-') + '</td>' +
             '<td><span class="import-row-status ' + statusClass + '">' + statusText + '</span></td>' +
             '</tr>';
     }).join('');
+}
 
-    previewSection.style.display = 'block';
+function renderIssueSummary() {
+    const sectionEl = document.getElementById('importIssueSection');
+    const issueTypes = {};
 
-    const confirmBtn = document.getElementById('importConfirmBtn');
-    confirmBtn.disabled = validCount === 0;
-    if (validCount > 0) {
-        confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认导入 (' + validCount + '条)';
-    } else {
-        confirmBtn.innerHTML = '<span class="btn-icon">✓</span> 确认导入';
+    wizardValidatedData.forEach(function(item) {
+        item.errors.forEach(function(err) {
+            if (!issueTypes[err]) {
+                issueTypes[err] = { count: 0, type: 'error' };
+            }
+            issueTypes[err].count++;
+        });
+        item.warnings.forEach(function(warn) {
+            if (!issueTypes[warn]) {
+                issueTypes[warn] = { count: 0, type: 'warning' };
+            }
+            issueTypes[warn].count++;
+        });
+    });
+
+    const hasIssues = Object.keys(issueTypes).length > 0;
+    sectionEl.style.display = hasIssues ? 'block' : 'none';
+
+    if (hasIssues) {
+        const html = '<div class="import-issue-title">问题汇总</div>' +
+            '<div class="import-issue-list">' +
+            Object.keys(issueTypes).map(function(msg) {
+                const issue = issueTypes[msg];
+                const cls = issue.type === 'error' ? 'issue-error' : 'issue-warning';
+                const icon = issue.type === 'error' ? '❌' : '⚠️';
+                return '<div class="import-issue-item ' + cls + '">' +
+                    '<span class="issue-icon">' + icon + '</span>' +
+                    '<span class="issue-text">' + msg + '</span>' +
+                    '<span class="issue-count">' + issue.count + ' 条</span>' +
+                '</div>';
+            }).join('') +
+            '</div>';
+        sectionEl.innerHTML = html;
     }
 }
 
-function confirmImport() {
-    if (importValidData.length === 0) {
-        showToast('没有可导入的有效数据', 'error');
-        return;
+function updateImportConfirmSummary() {
+    const totalCount = wizardValidatedData.length;
+    const validCount = wizardValidatedData.filter(function(r) { return r.valid && !r.hasWarning; }).length;
+    const warningCount = wizardValidatedData.filter(function(r) { return r.valid && r.hasWarning; }).length;
+    const invalidCount = wizardValidatedData.filter(function(r) { return !r.valid; }).length;
+
+    document.getElementById('confirmTotalCount').textContent = totalCount;
+    document.getElementById('confirmValidCount').textContent = validCount;
+    document.getElementById('confirmWarningCount').textContent = warningCount;
+    document.getElementById('confirmInvalidCount').textContent = invalidCount;
+
+    const importMode = document.querySelector('input[name="importMode"]:checked').value;
+    const resultPreviewEl = document.getElementById('importResultPreview');
+
+    let importableCount = 0;
+    let overwriteCount = 0;
+    let skipCount = 0;
+
+    if (importMode === 'valid_only') {
+        importableCount = validCount + warningCount;
+        skipCount = invalidCount;
+    } else if (importMode === 'overwrite') {
+        importableCount = validCount + warningCount;
+        overwriteCount = wizardValidatedData.filter(function(r) {
+            return r.valid && r.warnings.some(function(w) { return w.indexOf('与现有数据文号重复') >= 0; });
+        }).length;
+        skipCount = invalidCount;
     }
 
+    const html = '<div class="import-result-card">' +
+        '<div class="result-item result-add">' +
+            '<span class="result-icon">➕</span>' +
+            '<span class="result-label">将新增</span>' +
+            '<span class="result-value">' + (importableCount - overwriteCount) + ' 条</span>' +
+        '</div>' +
+        '<div class="result-item result-overwrite">' +
+            '<span class="result-icon">🔄</span>' +
+            '<span class="result-label">将覆盖</span>' +
+            '<span class="result-value">' + overwriteCount + ' 条</span>' +
+        '</div>' +
+        '<div class="result-item result-skip">' +
+            '<span class="result-icon">⏭</span>' +
+            '<span class="result-label">将跳过</span>' +
+            '<span class="result-value">' + skipCount + ' 条</span>' +
+        '</div>' +
+    '</div>';
+
+    resultPreviewEl.innerHTML = html;
+
+    const importBtn = document.getElementById('wizardImportBtn');
+    importBtn.disabled = importableCount === 0;
+    if (importableCount > 0) {
+        importBtn.innerHTML = '<span class="btn-icon">✓</span> 开始导入 (' + importableCount + '条)';
+    } else {
+        importBtn.innerHTML = '<span class="btn-icon">✓</span> 开始导入';
+    }
+}
+
+function confirmWizardImport() {
+    const importMode = document.querySelector('input[name="importMode"]:checked').value;
     const allDocs = loadAllDocuments();
+    const existingDocs = getDocuments();
     const now = new Date().toISOString();
-    const newDocs = importValidData.map(function(item) {
-        const dept = item.data.undertakingDepartment || item.data.department || '';
+
+    const docsToImport = wizardValidatedData.filter(function(r) { return r.valid; });
+
+    let addedCount = 0;
+    let updatedCount = 0;
+    const importedDocs = [];
+
+    docsToImport.forEach(function(item) {
+        const dept = item.data.undertakingDepartment || '';
         let deadline = item.data.deadline;
         if (!deadline && item.data.receiveDate && item.data.urgency) {
             const days = getDeadlineDaysByUrgency(item.data.urgency);
@@ -4297,67 +4770,95 @@ function confirmImport() {
             deadlineDate.setDate(deadlineDate.getDate() + days);
             deadline = formatDateInput(deadlineDate);
         }
-        return {
-            id: generateId(),
-            fromUnit: item.data.fromUnit,
-            docNumber: item.data.docNumber,
-            title: item.data.title,
-            receiveDate: item.data.receiveDate,
-            urgency: item.data.urgency,
-            department: dept,
-            proposedDepartment: item.data.proposedDepartment || '',
-            undertakingDepartment: dept,
-            coDepartments: item.data.coDepartments || [],
-            deadline: deadline,
-            remark: item.data.remark || '',
-            flowStatus: FLOW_STATUS.PENDING_REVIEW,
-            completed: false,
-            completedAt: null,
-            completedRemark: '',
-            processingRecords: [],
-            flowRecords: [
-                {
-                    id: generateId(),
-                    action: FLOW_ACTION.CREATE,
-                    actionText: '收文登记',
-                    fromStatus: null,
-                    toStatus: FLOW_STATUS.PENDING_REVIEW,
-                    handler: '',
-                    opinion: '收文登记',
-                    department: dept,
-                    createdAt: now
-                }
-            ],
-            isDeleted: false,
-            deletedAt: null,
-            createdAt: now
-        };
+
+        const existingIdx = allDocs.findIndex(function(d) {
+            return !d.isDeleted && d.docNumber === item.data.docNumber;
+        });
+
+        const flowRecords = [
+            {
+                id: generateId(),
+                action: FLOW_ACTION.CREATE,
+                actionText: '收文登记',
+                fromStatus: null,
+                toStatus: FLOW_STATUS.PENDING_REVIEW,
+                handler: '',
+                opinion: '收文登记（导入）',
+                department: dept,
+                createdAt: now
+            }
+        ];
+
+        if (existingIdx >= 0 && importMode === 'overwrite') {
+            const oldDoc = { ...allDocs[existingIdx] };
+            allDocs[existingIdx] = {
+                ...allDocs[existingIdx],
+                fromUnit: item.data.fromUnit,
+                title: item.data.title,
+                receiveDate: item.data.receiveDate,
+                urgency: item.data.urgency,
+                proposedDepartment: item.data.proposedDepartment || '',
+                undertakingDepartment: dept,
+                department: dept,
+                coDepartments: item.data.coDepartments || [],
+                deadline: deadline,
+                remark: item.data.remark || '',
+                updatedAt: now
+            };
+
+            addAuditLog(AUDIT_ACTION.EDIT, allDocs[existingIdx], oldDoc, { fromImport: true, overwrite: true });
+            updatedCount++;
+            importedDocs.push(allDocs[existingIdx]);
+        } else if (existingIdx < 0) {
+            const newDoc = {
+                id: generateId(),
+                fromUnit: item.data.fromUnit,
+                docNumber: item.data.docNumber,
+                title: item.data.title,
+                receiveDate: item.data.receiveDate,
+                urgency: item.data.urgency,
+                department: dept,
+                proposedDepartment: item.data.proposedDepartment || '',
+                undertakingDepartment: dept,
+                coDepartments: item.data.coDepartments || [],
+                deadline: deadline,
+                remark: item.data.remark || '',
+                flowStatus: FLOW_STATUS.PENDING_REVIEW,
+                completed: false,
+                completedAt: null,
+                completedRemark: '',
+                processingRecords: [],
+                flowRecords: flowRecords,
+                supervisionRecords: [],
+                reminderNote: '',
+                extendedDeadline: null,
+                isDeleted: false,
+                deletedAt: null,
+                createdAt: now
+            };
+            allDocs.unshift(newDoc);
+            addAuditLog(AUDIT_ACTION.CREATE, newDoc, null, { fromImport: true });
+            addedCount++;
+            importedDocs.push(newDoc);
+        }
     });
 
-    const updatedDocs = newDocs.concat(allDocs);
-    saveDocuments(updatedDocs);
+    saveDocuments(allDocs);
 
-    const validCount = importValidData.length;
-    const totalCount = importParsedData.length;
-    const skippedCount = totalCount - validCount;
-
-    if (validCount > 0 && newDocs.length > 0) {
-        newDocs.forEach(function(doc) {
-            addAuditLog(AUDIT_ACTION.CREATE, doc, null, {
-                fromImport: true
-            });
-        });
+    let msg = '导入完成：新增 ' + addedCount + ' 条';
+    if (updatedCount > 0) {
+        msg += '，覆盖 ' + updatedCount + ' 条';
     }
-
-    let msg = '成功导入 ' + validCount + ' 条收文';
-    if (skippedCount > 0) {
-        msg += '，跳过 ' + skippedCount + ' 条无效数据';
+    const skipped = wizardValidatedData.length - addedCount - updatedCount;
+    if (skipped > 0) {
+        msg += '，跳过 ' + skipped + ' 条';
     }
 
     showToast(msg, 'success');
     closeImportModal();
     updateStats();
     renderDocumentList();
+    renderReminderCenter();
 }
 
 function setupFileDragDrop() {
@@ -4389,9 +4890,20 @@ function setupFileDragDrop() {
     dropArea.addEventListener('drop', function(e) {
         const files = e.dataTransfer.files;
         if (files.length > 0) {
-            processFile(files[0]);
+            processWizardFile(files[0]);
         }
     });
+}
+
+function setupImportWizardEvents() {
+    const csvText = document.getElementById('importCsvText');
+    if (csvText) {
+        csvText.addEventListener('input', function() {
+            if (currentWizardStep === 1) {
+                updateWizardNavButtons();
+            }
+        });
+    }
 }
 
 const FIELD_NAME_MAP = {
@@ -6016,6 +6528,7 @@ function init() {
 
     setupFileDragDrop();
     setupRestoreFileDragDrop();
+    setupImportWizardEvents();
 
     const activePresetId = getActiveViewPresetId();
     if (activePresetId) {

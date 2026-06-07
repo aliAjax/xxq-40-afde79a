@@ -657,93 +657,246 @@
 
     <div class="modal" id="importModal">
         <div class="modal-overlay" onclick="closeImportModal()"></div>
-        <div class="modal-content modal-large">
+        <div class="modal-content modal-xlarge">
             <div class="modal-header">
-                <h2>导入收文</h2>
+                <h2>导入收文向导</h2>
                 <button class="modal-close" onclick="closeImportModal()">✕</button>
             </div>
-            <div class="modal-body">
-                <div class="import-tabs">
-                    <div class="import-tab active" data-import-tab="paste" onclick="switchImportTab('paste')">
-                        <span class="import-tab-icon">📋</span> 粘贴CSV
+            <div class="modal-body import-wizard">
+                <div class="wizard-steps">
+                    <div class="wizard-step active" data-step="1" onclick="goToWizardStep(1)">
+                        <div class="wizard-step-circle">1</div>
+                        <div class="wizard-step-label">选择数据</div>
                     </div>
-                    <div class="import-tab" data-import-tab="file" onclick="switchImportTab('file')">
-                        <span class="import-tab-icon">📁</span> 选择文件
+                    <div class="wizard-step-line"></div>
+                    <div class="wizard-step" data-step="2" onclick="goToWizardStep(2)">
+                        <div class="wizard-step-circle">2</div>
+                        <div class="wizard-step-label">字段映射</div>
+                    </div>
+                    <div class="wizard-step-line"></div>
+                    <div class="wizard-step" data-step="3" onclick="goToWizardStep(3)">
+                        <div class="wizard-step-circle">3</div>
+                        <div class="wizard-step-label">数据预览</div>
+                    </div>
+                    <div class="wizard-step-line"></div>
+                    <div class="wizard-step" data-step="4" onclick="goToWizardStep(4)">
+                        <div class="wizard-step-circle">4</div>
+                        <div class="wizard-step-label">确认导入</div>
                     </div>
                 </div>
 
-                <div class="import-tab-content" id="importTabPaste">
-                    <div class="form-group">
-                        <label class="form-label">CSV内容 <span class="required">*</span></label>
-                        <textarea id="importCsvText" class="form-input form-textarea import-textarea"
-                            placeholder="请粘贴CSV格式数据，第一行为表头。&#10;字段顺序：来文单位,文号,标题,收文日期,紧急程度,承办科室,办理期限,备注&#10;示例：&#10;市政府办公室,市政发〔2024〕1号,关于做好2024年度工作的通知,2024-01-15,普通,办公室,2024-02-15,请尽快办理"
-                            rows="8"></textarea>
-                    </div>
-                    <button class="btn btn-primary" onclick="parseCsvText()">
-                        <span class="btn-icon">🔍</span> 解析预览
-                    </button>
-                </div>
+                <div class="wizard-content">
+                    <div class="wizard-step-content active" id="wizardStep1">
+                        <div class="wizard-step-title">
+                            <span class="wizard-step-icon">📁</span>
+                            第一步：选择CSV数据
+                        </div>
+                        <div class="wizard-step-desc">请选择CSV文件或粘贴CSV内容，系统将自动识别表头。</div>
 
-                <div class="import-tab-content" id="importTabFile" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">选择CSV文件 <span class="required">*</span></label>
-                        <div class="file-upload-area" id="fileUploadArea">
-                            <input type="file" id="importFileInput" accept=".csv,text/csv" style="display: none;" onchange="handleFileSelect(event)">
-                            <div class="file-upload-inner" onclick="document.getElementById('importFileInput').click()">
-                                <div class="file-upload-icon">📁</div>
-                                <div class="file-upload-text">点击选择CSV文件，或拖拽文件到此处</div>
-                                <div class="file-upload-hint">支持 .csv 格式文件</div>
+                        <div class="import-tabs">
+                            <div class="import-tab active" data-import-tab="paste" onclick="switchImportTab('paste')">
+                                <span class="import-tab-icon">📋</span> 粘贴CSV
+                            </div>
+                            <div class="import-tab" data-import-tab="file" onclick="switchImportTab('file')">
+                                <span class="import-tab-icon">📁</span> 选择文件
+                            </div>
+                        </div>
+
+                        <div class="import-tab-content" id="importTabPaste">
+                            <div class="form-group">
+                                <label class="form-label">CSV内容 <span class="required">*</span></label>
+                                <textarea id="importCsvText" class="form-input form-textarea import-textarea"
+                                    placeholder="请粘贴CSV格式数据，第一行为表头。&#10;示例：&#10;来文单位,文号,标题,收文日期,紧急程度,承办科室,办理期限,备注&#10;市政府办公室,市政发〔2024〕1号,关于做好2024年度工作的通知,2024-01-15,普通,办公室,2024-02-15,请尽快办理"
+                                    rows="8"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="import-tab-content" id="importTabFile" style="display: none;">
+                            <div class="form-group">
+                                <label class="form-label">选择CSV文件 <span class="required">*</span></label>
+                                <div class="file-upload-area" id="fileUploadArea">
+                                    <input type="file" id="importFileInput" accept=".csv,text/csv" style="display: none;" onchange="handleFileSelect(event)">
+                                    <div class="file-upload-inner" onclick="document.getElementById('importFileInput').click()">
+                                        <div class="file-upload-icon">📁</div>
+                                        <div class="file-upload-text">点击选择CSV文件，或拖拽文件到此处</div>
+                                        <div class="file-upload-hint">支持 .csv 格式文件，第一行为表头</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="selectedFileName" class="selected-file-name" style="display: none;"></div>
+                        </div>
+
+                        <div class="wizard-step-tip">
+                            <span class="tip-icon">💡</span>
+                            <span class="tip-text">提示：CSV文件第一行必须是表头，系统将自动识别并尝试匹配字段。支持的字段：来文单位、文号、标题、收文日期、紧急程度、拟办科室、承办科室、协办科室、办理期限、备注</span>
+                        </div>
+                    </div>
+
+                    <div class="wizard-step-content" id="wizardStep2" style="display: none;">
+                        <div class="wizard-step-title">
+                            <span class="wizard-step-icon">🔗</span>
+                            第二步：字段映射
+                        </div>
+                        <div class="wizard-step-desc">请将CSV中的列与系统字段进行匹配。系统已为您自动匹配了部分字段，您可以手动调整。</div>
+
+                        <div class="field-mapping-section">
+                            <div class="field-mapping-header">
+                                <div class="mapping-col mapping-col-csv">CSV列表头</div>
+                                <div class="mapping-col-arrow"></div>
+                                <div class="mapping-col mapping-col-system">系统字段</div>
+                            </div>
+                            <div class="field-mapping-list" id="fieldMappingList">
+                            </div>
+                        </div>
+
+                        <div class="mapping-options">
+                            <div class="form-group form-group-inline">
+                                <label class="form-label">协办科室分隔符</label>
+                                <select id="coDeptSeparator" class="form-input form-input-small" onchange="updateMappingPreview()">
+                                    <option value=";">分号（;）</option>
+                                    <option value=",">逗号（,）</option>
+                                    <option value="、">顿号（、）</option>
+                                    <option value="/">斜杠（/）</option>
+                                    <option value="|">竖线（|）</option>
+                                </select>
+                                <span class="form-hint">用于拆分协办科室字段中的多个科室</span>
+                            </div>
+                        </div>
+
+                        <div class="mapping-preview">
+                            <div class="mapping-preview-title">
+                                <span class="preview-icon">👁</span>
+                                映射预览（前3行数据）
+                            </div>
+                            <div class="mapping-preview-table-wrapper">
+                                <table class="mapping-preview-table" id="mappingPreviewTable">
+                                </table>
                             </div>
                         </div>
                     </div>
-                    <div id="selectedFileName" class="selected-file-name" style="display: none;"></div>
-                </div>
 
-                <div class="import-preview-section" id="importPreviewSection" style="display: none;">
-                    <div class="import-summary">
-                        <div class="import-summary-item total">
-                            <span class="import-summary-label">总行数</span>
-                            <span class="import-summary-value" id="importTotalCount">0</span>
+                    <div class="wizard-step-content" id="wizardStep3" style="display: none;">
+                        <div class="wizard-step-title">
+                            <span class="wizard-step-icon">🔍</span>
+                            第三步：数据预览与问题检测
                         </div>
-                        <div class="import-summary-item valid">
-                            <span class="import-summary-label">有效行</span>
-                            <span class="import-summary-value" id="importValidCount">0</span>
+                        <div class="wizard-step-desc">系统已检测数据中存在的问题，请确认后继续下一步。</div>
+
+                        <div class="import-summary">
+                            <div class="import-summary-item total">
+                                <span class="import-summary-label">总行数</span>
+                                <span class="import-summary-value" id="wizardTotalCount">0</span>
+                            </div>
+                            <div class="import-summary-item valid">
+                                <span class="import-summary-label">有效行</span>
+                                <span class="import-summary-value" id="wizardValidCount">0</span>
+                            </div>
+                            <div class="import-summary-item warning">
+                                <span class="import-summary-label">有警告</span>
+                                <span class="import-summary-value" id="wizardWarningCount">0</span>
+                            </div>
+                            <div class="import-summary-item invalid">
+                                <span class="import-summary-label">无效行</span>
+                                <span class="import-summary-value" id="wizardInvalidCount">0</span>
+                            </div>
                         </div>
-                        <div class="import-summary-item invalid">
-                            <span class="import-summary-label">无效行</span>
-                            <span class="import-summary-value" id="importInvalidCount">0</span>
+
+                        <div class="import-issue-section" id="importIssueSection">
+                        </div>
+
+                        <div class="import-preview-table-wrapper wizard-preview">
+                            <div class="preview-filter-bar">
+                                <span class="preview-filter-label">筛选显示：</span>
+                                <button class="preview-filter-btn active" onclick="filterPreviewRows('all')">全部</button>
+                                <button class="preview-filter-btn" onclick="filterPreviewRows('valid')">仅有效</button>
+                                <button class="preview-filter-btn" onclick="filterPreviewRows('warning')">有警告</button>
+                                <button class="preview-filter-btn" onclick="filterPreviewRows('invalid')">仅无效</button>
+                            </div>
+                            <table class="import-preview-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">行号</th>
+                                        <th>来文单位</th>
+                                        <th>文号</th>
+                                        <th>标题</th>
+                                        <th>收文日期</th>
+                                        <th>紧急程度</th>
+                                        <th>拟办科室</th>
+                                        <th>承办科室</th>
+                                        <th>协办科室</th>
+                                        <th>办理期限</th>
+                                        <th>备注</th>
+                                        <th style="width: 100px;">状态</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="wizardPreviewBody">
+                                </tbody>
+                            </table>
                         </div>
                     </div>
 
-                    <div class="import-error-summary" id="importErrorSummary" style="display: none;"></div>
+                    <div class="wizard-step-content" id="wizardStep4" style="display: none;">
+                        <div class="wizard-step-title">
+                            <span class="wizard-step-icon">✅</span>
+                            第四步：确认导入
+                        </div>
+                        <div class="wizard-step-desc">请确认导入选项，点击开始导入。</div>
 
-                    <div class="import-preview-table-wrapper">
-                        <table class="import-preview-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 50px;">行号</th>
-                                    <th>来文单位</th>
-                                    <th>文号</th>
-                                    <th>标题</th>
-                                    <th>收文日期</th>
-                                    <th>紧急程度</th>
-                                    <th>承办科室</th>
-                                    <th>办理期限</th>
-                                    <th>备注</th>
-                                    <th style="width: 80px;">状态</th>
-                                </tr>
-                            </thead>
-                            <tbody id="importPreviewBody">
-                            </tbody>
-                        </table>
+                        <div class="import-confirm-summary">
+                            <div class="confirm-summary-card">
+                                <div class="confirm-summary-icon">📊</div>
+                                <div class="confirm-summary-info">
+                                    <div class="confirm-summary-label">导入数据统计</div>
+                                    <div class="confirm-summary-stats">
+                                        <span class="stat-item">共 <strong id="confirmTotalCount">0</strong> 行</span>
+                                        <span class="stat-item valid">有效 <strong id="confirmValidCount">0</strong> 行</span>
+                                        <span class="stat-item warning">警告 <strong id="confirmWarningCount">0</strong> 行</span>
+                                        <span class="stat-item invalid">无效 <strong id="confirmInvalidCount">0</strong> 行</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="import-options-section">
+                            <div class="import-options-title">导入选项</div>
+                            <div class="import-options-list">
+                                <label class="import-option-item">
+                                    <input type="radio" name="importMode" value="valid_only" checked onchange="updateImportConfirmSummary()">
+                                    <span class="custom-radio"></span>
+                                    <div class="import-option-content">
+                                        <div class="import-option-title">仅导入有效行</div>
+                                        <div class="import-option-desc">只导入没有错误的数据行，跳过有警告和无效的行将被忽略</div>
+                                    </div>
+                                </label>
+                                <label class="import-option-item">
+                                    <input type="radio" name="importMode" value="overwrite" onchange="updateImportConfirmSummary()">
+                                    <span class="custom-radio"></span>
+                                    <div class="import-option-content">
+                                        <div class="import-option-title">覆盖重复文号</div>
+                                        <div class="import-option-desc">如果导入数据中存在与现有系统重复的文号，将覆盖原有数据</div>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="import-result-preview" id="importResultPreview">
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
+            <div class="modal-footer wizard-footer">
                 <button type="button" class="btn btn-default" onclick="closeImportModal()">取消</button>
-                <button type="button" class="btn btn-primary" id="importConfirmBtn" onclick="confirmImport()" disabled>
-                    <span class="btn-icon">✓</span> 确认导入
-                </button>
+                <div class="wizard-nav-buttons">
+                    <button type="button" class="btn btn-default" id="wizardPrevBtn" onclick="prevWizardStep()" style="display: none;">
+                        <span class="btn-icon">←</span> 上一步
+                    </button>
+                    <button type="button" class="btn btn-primary" id="wizardNextBtn" onclick="nextWizardStep()">
+                        下一步 <span class="btn-icon">→</span>
+                    </button>
+                    <button type="button" class="btn btn-success" id="wizardImportBtn" onclick="confirmWizardImport()" style="display: none;">
+                        <span class="btn-icon">✓</span> 开始导入
+                    </button>
+                </div>
             </div>
         </div>
     </div>
