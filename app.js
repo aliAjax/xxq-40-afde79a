@@ -1654,7 +1654,11 @@ function executeBatchDepartment(e) {
     const updatedDocs = allDocs.map(doc => {
         if (selectedIds.includes(doc.id) && !doc.isDeleted) {
             const oldDoc = { ...doc };
-            const newDoc = { ...doc, department: newDepartment };
+            const newDoc = {
+                ...doc,
+                undertakingDepartment: newDepartment,
+                department: newDepartment
+            };
             changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
             return newDoc;
         }
@@ -1743,7 +1747,7 @@ function updateFilterActiveBadge() {
     }
 }
 
-function addFlowRecord(docId, action, opinion, handler, department, toStatus) {
+function addFlowRecord(docId, action, opinion, handler, department, toStatus, coDepartments) {
     const documents = loadAllDocuments();
     const index = documents.findIndex(function(d) { return d.id === docId && !d.isDeleted; });
     if (index === -1) {
@@ -1781,6 +1785,19 @@ function addFlowRecord(docId, action, opinion, handler, department, toStatus) {
         doc.completed = true;
         doc.completedAt = now;
         doc.completedRemark = opinion || '';
+    }
+
+    if (action === FLOW_ACTION.PROPOSE && department) {
+        doc.proposedDepartment = department;
+    }
+
+    if (action === FLOW_ACTION.ASSIGN && department) {
+        doc.undertakingDepartment = department;
+        doc.department = department;
+    }
+
+    if ((action === FLOW_ACTION.PROPOSE || action === FLOW_ACTION.ASSIGN) && Array.isArray(coDepartments)) {
+        doc.coDepartments = coDepartments;
     }
 
     documents[index] = doc;
@@ -2050,34 +2067,19 @@ function executeFlowAction(e) {
 
     const flowActionType = actionMap[currentFlowAction.key] || currentFlowAction.key;
 
+    const selectedCoDepartments = currentFlowAction.needsDepartment ? getSelectedCoDepartments() : null;
+
     const result = addFlowRecord(
         currentFlowDocId,
         flowActionType,
         opinion,
         handler,
         department,
-        currentFlowAction.toStatus
+        currentFlowAction.toStatus,
+        selectedCoDepartments
     );
 
     if (result.success) {
-        if (currentFlowAction.needsDepartment) {
-            const documents = loadAllDocuments();
-            const idx = documents.findIndex(function(d) { return d.id === currentFlowDocId && !d.isDeleted; });
-            if (idx !== -1) {
-                const doc = documents[idx];
-                if (currentFlowAction.key === 'propose') {
-                    doc.proposedDepartment = department;
-                }
-                if (currentFlowAction.key === 'assign') {
-                    doc.undertakingDepartment = department;
-                    doc.department = department;
-                }
-                doc.coDepartments = getSelectedCoDepartments();
-                documents[idx] = doc;
-                saveDocuments(documents);
-            }
-        }
-
         showToast('操作成功', 'success');
         closeFlowModal();
         updateStats();
