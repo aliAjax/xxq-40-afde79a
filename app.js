@@ -1774,7 +1774,7 @@ function drillDepartmentMetric(dept, metric) {
         case 'overdue':
         case 'overdueRate':
             tab = 'urgent';
-            extraFilterInfo = '已逾期/即将到期';
+            extraFilterInfo = '已逾期';
             boardDrillContext.overdueOnly = true;
             break;
         case 'recent7Days':
@@ -1797,7 +1797,7 @@ function drillDepartmentMetric(dept, metric) {
     detachFromViewPreset();
     updateFilterActiveBadge();
     switchView('list');
-    switchTab(tab);
+    switchTab(tab, { preserveDrill: true });
     selectedIds = [];
 
     updateDrillIndicator(dept, extraFilterInfo);
@@ -2026,7 +2026,7 @@ function viewDepartmentDocuments(dept) {
     detachFromViewPreset();
     updateFilterActiveBadge();
     switchView('list');
-    switchTab('all');
+    switchTab('all', { preserveDrill: true });
     selectedIds = [];
 
     updateDrillIndicator(dept, '全部');
@@ -2571,7 +2571,7 @@ function executeBatchDepartment(e) {
     renderDocumentList();
 }
 
-function switchTab(tab) {
+function switchTab(tab, options = {}) {
     currentTab = tab;
     selectedIds = [];
     document.querySelectorAll('.tab').forEach(t => {
@@ -2581,7 +2581,7 @@ function switchTab(tab) {
     if (currentViewPresetId) {
         detachFromViewPreset();
     }
-    if (boardDrillContext && currentView === 'list') {
+    if (boardDrillContext && currentView === 'list' && !options.preserveDrill) {
         clearDrillSpecialFilters();
     }
     if (currentView === 'board') {
