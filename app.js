@@ -1,7 +1,9 @@
 const STORAGE_KEY = 'document_registry_data';
 const TEMPLATE_STORAGE_KEY = 'document_templates';
 const AUDIT_LOG_STORAGE_KEY = 'document_audit_logs';
+const FLOW_RULE_STORAGE_KEY = 'document_flow_rules';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
+const URGENCY_LIST = ['普通', '加急', '特急'];
 
 const AUDIT_ACTION = {
     CREATE: 'create',
@@ -23,7 +25,8 @@ const AUDIT_ACTION = {
     FLOW_ASSIGN: 'flow_assign',
     FLOW_PROGRESS: 'flow_progress',
     FLOW_FEEDBACK: 'flow_feedback',
-    ADD_PROGRESS_RECORD: 'add_progress_record'
+    ADD_PROGRESS_RECORD: 'add_progress_record',
+    FLOW_RULE_CHANGE: 'flow_rule_change'
 };
 
 const AUDIT_ACTION_TEXT = {
@@ -46,7 +49,8 @@ const AUDIT_ACTION_TEXT = {
     'flow_assign': '交办',
     'flow_progress': '进展更新',
     'flow_feedback': '反馈',
-    'add_progress_record': '追加进展'
+    'add_progress_record': '追加进展',
+    'flow_rule_change': '流程规则变更'
 };
 
 const FLOW_STATUS = {
@@ -261,6 +265,243 @@ function getAuditLogs() {
 
 function saveAuditLogs(logs) {
     localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(logs));
+}
+
+function getDefaultFlowRules() {
+    return {
+        version: '1.0',
+        urgencyDeadlineDays: {
+            '普通': 7,
+            '加急': 3,
+            '特急': 1
+        },
+        requireProposeBeforeAssign: false,
+        completableStatuses: [FLOW_STATUS.PENDING_FEEDBACK],
+        updatedAt: null
+    };
+}
+
+function getFlowRules() {
+    const data = localStorage.getItem(FLOW_RULE_STORAGE_KEY);
+    if (!data) {
+        return getDefaultFlowRules();
+    }
+    try {
+        const rules = JSON.parse(data);
+        const defaults = getDefaultFlowRules();
+        return {
+            version: rules.version || defaults.version,
+            urgencyDeadlineDays: {
+                ...defaults.urgencyDeadlineDays,
+                ...(rules.urgencyDeadlineDays || {})
+            },
+            requireProposeBeforeAssign: rules.requireProposeBeforeAssign !== undefined ? rules.requireProposeBeforeAssign : defaults.requireProposeBeforeAssign,
+            completableStatuses: Array.isArray(rules.completableStatuses) && rules.completableStatuses.length > 0
+                ? rules.completableStatuses
+                : defaults.completableStatuses,
+            updatedAt: rules.updatedAt || null
+        };
+    } catch (e) {
+        return getDefaultFlowRules();
+    }
+}
+
+function saveFlowRules(rules) {
+    const now = new Date().toISOString();
+    const rulesWithTime = {
+        ...rules,
+        updatedAt: now
+    };
+    localStorage.setItem(FLOW_RULE_STORAGE_KEY, JSON.stringify(rulesWithTime));
+    return rulesWithTime;
+}
+
+function getDeadlineDaysByUrgency(urgency) {
+    const rules = getFlowRules();
+    const days = rules.urgencyDeadlineDays[urgency];
+    return days !== undefined ? days : 7;
+}
+
+function canCompleteFromStatus(status) {
+    const rules = getFlowRules();
+    return rules.completableStatuses.includes(status);
+}
+
+function isProposeRequiredBeforeAssign() {
+    const rules = getFlowRules();
+    return rules.requireProposeBeforeAssign;
+}
+
+function getFlowRulesChangesSummary(oldRules, newRules) {
+    const changes = [];
+
+    URGENCY_LIST.forEach(function(urgency) {
+        const oldDays = oldRules.urgencyDeadlineDays[urgency];
+        const newDays = newRules.urgencyDeadlineDays[urgency];
+        if (oldDays !== newDays) {
+            changes.push(urgency + '办理天数：' + oldDays + '天 → ' + newDays + '天');
+        }
+    });
+
+    const oldRequire = oldRules.requireProposeBeforeAssign ? '是' : '否';
+    const newRequire = newRules.requireProposeBeforeAssign ? '是' : '否';
+    if (oldRequire !== newRequire) {
+        changes.push('必须先拟办再交办：' + oldRequire + ' → ' + newRequire);
+    }
+
+    const oldCompletable = (oldRules.completableStatuses || []).map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
+    const newCompletable = (newRules.completableStatuses || []).map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
+    if (oldCompletable !== newCompletable) {
+        changes.push('允许办结状态：' + oldCompletable + ' → ' + newCompletable);
+    }
+
+    if (changes.length === 0) return '无变更';
+    return changes.join('；');
+}
+
+function addFlowRuleChangeAuditLog(oldRules, newRules) {
+    const logs = getAuditLogs();
+    const now = new Date().toISOString();
+
+    const oldSummary = '紧急程度天数：普通' + oldRules.urgencyDeadlineDays['普通'] + '天、加急' + oldRules.urgencyDeadlineDays['加急'] + '天、特急' + oldRules.urgencyDeadlineDays['特急'] + '天；先拟办再交办：' + (oldRules.requireProposeBeforeAssign ? '是' : '否') + '；允许办结：' + (oldRules.completableStatuses || []).map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
+
+    const newSummary = '紧急程度天数：普通' + newRules.urgencyDeadlineDays['普通'] + '天、加急' + newRules.urgencyDeadlineDays['加急'] + '天、特急' + newRules.urgencyDeadlineDays['特急'] + '天；先拟办再交办：' + (newRules.requireProposeBeforeAssign ? '是' : '否') + '；允许办结：' + (newRules.completableStatuses || []).map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
+
+    const log = {
+        id: generateId(),
+        action: AUDIT_ACTION.FLOW_RULE_CHANGE,
+        actionText: AUDIT_ACTION_TEXT[AUDIT_ACTION.FLOW_RULE_CHANGE],
+        docId: null,
+        docTitle: '',
+        docNumber: '',
+        beforeSummary: oldSummary,
+        afterSummary: newSummary,
+        changes: getFlowRulesChangesSummary(oldRules, newRules),
+        timestamp: now,
+        extra: null
+    };
+
+    logs.unshift(log);
+
+    if (logs.length > 1000) {
+        logs.length = 1000;
+    }
+
+    saveAuditLogs(logs);
+}
+
+function openFlowRuleModal() {
+    loadFlowRuleSettings();
+    document.getElementById('flowRuleModal').classList.add('show');
+}
+
+function closeFlowRuleModal() {
+    document.getElementById('flowRuleModal').classList.remove('show');
+}
+
+function loadFlowRuleSettings() {
+    const rules = getFlowRules();
+
+    document.getElementById('urgencyDaysNormal').value = rules.urgencyDeadlineDays['普通'];
+    document.getElementById('urgencyDaysUrgent').value = rules.urgencyDeadlineDays['加急'];
+    document.getElementById('urgencyDaysExtraUrgent').value = rules.urgencyDeadlineDays['特急'];
+
+    document.getElementById('requireProposeBeforeAssign').checked = rules.requireProposeBeforeAssign;
+
+    const checkboxes = document.querySelectorAll('.completable-status-checkbox');
+    checkboxes.forEach(function(cb) {
+        cb.checked = rules.completableStatuses.includes(cb.value);
+    });
+
+    updateCompletableStatusHint();
+}
+
+function updateCompletableStatusHint() {
+    const checkboxes = document.querySelectorAll('.completable-status-checkbox:checked');
+    const hint = document.getElementById('completableStatusHint');
+    if (checkboxes.length === 0) {
+        hint.textContent = '警告：未选择任何可办结状态，将无法对任何收文进行办结操作';
+        hint.style.color = '#cf1322';
+    } else {
+        hint.textContent = '';
+    }
+}
+
+function saveFlowRuleSettings() {
+    const oldRules = getFlowRules();
+
+    const normalDays = parseInt(document.getElementById('urgencyDaysNormal').value, 10);
+    const urgentDays = parseInt(document.getElementById('urgencyDaysUrgent').value, 10);
+    const extraUrgentDays = parseInt(document.getElementById('urgencyDaysExtraUrgent').value, 10);
+
+    if (!normalDays || normalDays < 1 || normalDays > 365) {
+        showToast('普通紧急程度的办理天数必须在1-365之间', 'error');
+        return;
+    }
+    if (!urgentDays || urgentDays < 1 || urgentDays > 365) {
+        showToast('加急紧急程度的办理天数必须在1-365之间', 'error');
+        return;
+    }
+    if (!extraUrgentDays || extraUrgentDays < 1 || extraUrgentDays > 365) {
+        showToast('特急紧急程度的办理天数必须在1-365之间', 'error');
+        return;
+    }
+
+    const requirePropose = document.getElementById('requireProposeBeforeAssign').checked;
+
+    const completableStatuses = [];
+    const checkboxes = document.querySelectorAll('.completable-status-checkbox:checked');
+    checkboxes.forEach(function(cb) {
+        completableStatuses.push(cb.value);
+    });
+
+    if (completableStatuses.length === 0) {
+        if (!confirm('未选择任何可办结状态，将无法对任何收文进行办结操作。确定要保存吗？')) {
+            return;
+        }
+    }
+
+    const newRules = {
+        version: '1.0',
+        urgencyDeadlineDays: {
+            '普通': normalDays,
+            '加急': urgentDays,
+            '特急': extraUrgentDays
+        },
+        requireProposeBeforeAssign: requirePropose,
+        completableStatuses: completableStatuses
+    };
+
+    const changes = getFlowRulesChangesSummary(oldRules, newRules);
+    if (changes === '无变更') {
+        showToast('规则未发生变化', 'info');
+        closeFlowRuleModal();
+        return;
+    }
+
+    const savedRules = saveFlowRules(newRules);
+    addFlowRuleChangeAuditLog(oldRules, savedRules);
+    showToast('流程规则已保存', 'success');
+    closeFlowRuleModal();
+
+    renderDocumentList();
+    updateStats();
+}
+
+function resetFlowRules() {
+    if (!confirm('确定要恢复为默认规则吗？')) {
+        return;
+    }
+
+    const oldRules = getFlowRules();
+    const defaultRules = getDefaultFlowRules();
+    const savedRules = saveFlowRules(defaultRules);
+    addFlowRuleChangeAuditLog(oldRules, savedRules);
+    loadFlowRuleSettings();
+    showToast('已恢复为默认规则', 'success');
+
+    renderDocumentList();
+    updateStats();
 }
 
 function getDocSummary(doc) {
@@ -1418,12 +1659,12 @@ function updateBatchToolbar() {
         selectAllCheckbox.checked = filtered.length > 0 && selectedIds.length === filtered.length;
     }
 
-    const hasFeedbackDocs = selectedIds.some(id => {
+    const hasCompletableDocs = selectedIds.some(id => {
         const doc = documents.find(d => d.id === id);
-        return doc && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK;
+        return doc && canCompleteFromStatus(doc.flowStatus);
     });
     if (batchCompleteBtn) {
-        batchCompleteBtn.style.display = hasFeedbackDocs ? 'inline-flex' : 'none';
+        batchCompleteBtn.style.display = hasCompletableDocs ? 'inline-flex' : 'none';
     }
 }
 
@@ -1446,12 +1687,14 @@ function openBatchCompleteModal() {
     if (selectedIds.length === 0) return;
 
     const selectedDocs = getSelectedDocuments();
-    const feedbackDocs = selectedDocs.filter(function(doc) {
-        return doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK;
+    const completableDocs = selectedDocs.filter(function(doc) {
+        return canCompleteFromStatus(doc.flowStatus);
     });
 
-    if (feedbackDocs.length === 0) {
-        showToast('只有待反馈状态的收文才能办结', 'info');
+    if (completableDocs.length === 0) {
+        const rules = getFlowRules();
+        const statusNames = rules.completableStatuses.map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
+        showToast('只有' + statusNames + '状态的收文才能办结', 'info');
         return;
     }
 
@@ -1461,7 +1704,7 @@ function openBatchCompleteModal() {
     const batchConfirmMessage = document.getElementById('batchConfirmMessage');
     if (batchConfirmMessage) {
         batchConfirmMessage.innerHTML =
-            '确定要将选中的 <span>' + feedbackDocs.length + '</span> 条待反馈收文标记为已办结吗？';
+            '确定要将选中的 <span>' + completableDocs.length + '</span> 条收文标记为已办结吗？';
     }
     const batchConfirmBtn = document.getElementById('batchConfirmBtn');
     if (batchConfirmBtn) batchConfirmBtn.className = 'btn btn-success';
@@ -1524,7 +1767,7 @@ function executeBatchAction(e) {
         const now = new Date().toISOString();
         const completedDocs = [];
         const updatedDocs = allDocs.map(function(doc) {
-            if (selectedIds.includes(doc.id) && !doc.isDeleted && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
+            if (selectedIds.includes(doc.id) && !doc.isDeleted && canCompleteFromStatus(doc.flowStatus)) {
                 count++;
                 const flowRecord = {
                     id: generateId(),
@@ -1825,6 +2068,8 @@ function addFlowRecord(docId, action, opinion, handler, department, toStatus, co
 function getAvailableFlowActions(doc) {
     const status = doc.flowStatus;
     const actions = [];
+    const requirePropose = isProposeRequiredBeforeAssign();
+    const hasProposed = doc.proposedDepartment && doc.proposedDepartment.length > 0;
 
     if (status === FLOW_STATUS.PENDING_REVIEW) {
         actions.push({
@@ -1838,7 +2083,8 @@ function getAvailableFlowActions(doc) {
         });
     }
 
-    if (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING) {
+    const canAssign = !requirePropose || hasProposed || status !== FLOW_STATUS.PENDING_REVIEW;
+    if (canAssign && (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING)) {
         actions.push({
             key: 'assign',
             label: '交办',
@@ -1872,7 +2118,7 @@ function getAvailableFlowActions(doc) {
         });
     }
 
-    if (status === FLOW_STATUS.PENDING_FEEDBACK) {
+    if (canCompleteFromStatus(status)) {
         actions.push({
             key: 'complete',
             label: '办结',
@@ -2105,10 +2351,9 @@ function openAddModal() {
     const receiveDateEl = document.getElementById('receiveDate');
     if (receiveDateEl) receiveDateEl.value = formatDateInput(new Date());
 
-    const defaultDeadline = new Date();
-    defaultDeadline.setDate(defaultDeadline.getDate() + 7);
-    const deadlineEl = document.getElementById('deadline');
-    if (deadlineEl) deadlineEl.value = formatDateInput(defaultDeadline);
+    const urgencyEl = document.getElementById('urgency');
+    const defaultUrgency = urgencyEl ? urgencyEl.value : '普通';
+    updateAddModalDeadlineByUrgency(defaultUrgency);
 
     const templateSection = document.getElementById('templateSection');
     if (templateSection) templateSection.style.display = 'block';
@@ -2124,6 +2369,20 @@ function openAddModal() {
 
     const documentModal = document.getElementById('documentModal');
     if (documentModal) documentModal.classList.add('show');
+}
+
+function updateAddModalDeadlineByUrgency(urgency) {
+    const receiveDateEl = document.getElementById('receiveDate');
+    const deadlineEl = document.getElementById('deadline');
+    if (!receiveDateEl || !deadlineEl) return;
+
+    const receiveDate = receiveDateEl.value;
+    if (!receiveDate) return;
+
+    const days = getDeadlineDaysByUrgency(urgency);
+    const deadlineDate = new Date(receiveDate);
+    deadlineDate.setDate(deadlineDate.getDate() + days);
+    deadlineEl.value = formatDateInput(deadlineDate);
 }
 
 function renderCoDeptCheckboxesAdd(selected) {
@@ -2908,10 +3167,12 @@ function validateImportRow(row, index, allRows, existingDocs) {
     } else if (!isValidDepartment(row.department)) {
         errors.push('承办科室无效');
     }
-    if (!row.deadline) {
-        errors.push('办理期限不能为空');
-    } else if (!isValidDate(row.deadline)) {
+    if (row.deadline && !isValidDate(row.deadline)) {
         errors.push('办理期限格式错误');
+    }
+
+    if (!row.deadline && row.receiveDate && isValidDate(row.receiveDate) && row.urgency && isValidUrgency(row.urgency)) {
+        // 将自动根据紧急程度计算办理期限
     }
 
     if (row.docNumber) {
@@ -3021,6 +3282,15 @@ function renderImportPreview() {
         const statusClass = item.valid ? 'status-valid' : 'status-invalid';
         const errorTooltip = item.errors.join('；');
 
+        const deadlineHasError = item.data.deadline && !isValidDate(item.data.deadline);
+        let deadlineDisplay = escapeHtml(item.data.deadline) || '-';
+        if (!item.data.deadline && item.data.receiveDate && isValidDate(item.data.receiveDate) && item.data.urgency && isValidUrgency(item.data.urgency)) {
+            const days = getDeadlineDaysByUrgency(item.data.urgency);
+            const deadlineDate = new Date(item.data.receiveDate);
+            deadlineDate.setDate(deadlineDate.getDate() + days);
+            deadlineDisplay = '<span class="auto-calc-hint">' + formatDate(formatDateInput(deadlineDate)) + ' (自动计算)</span>';
+        }
+
         return '<tr class="' + rowClass + '" title="' + escapeHtml(errorTooltip) + '">' +
             '<td>' + item.rowIndex + '</td>' +
             '<td class="' + (!item.data.fromUnit ? 'cell-error' : '') + '">' + (escapeHtml(item.data.fromUnit) || '-') + '</td>' +
@@ -3029,7 +3299,7 @@ function renderImportPreview() {
             '<td class="' + (!item.data.receiveDate || !isValidDate(item.data.receiveDate) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.receiveDate) || '-') + '</td>' +
             '<td class="' + (!item.data.urgency || !isValidUrgency(item.data.urgency) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.urgency) || '-') + '</td>' +
             '<td class="' + (!item.data.department || !isValidDepartment(item.data.department) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.department) || '-') + '</td>' +
-            '<td class="' + (!item.data.deadline || !isValidDate(item.data.deadline) ? 'cell-error' : '') + '">' + (escapeHtml(item.data.deadline) || '-') + '</td>' +
+            '<td class="' + (deadlineHasError ? 'cell-error' : '') + '">' + deadlineDisplay + '</td>' +
             '<td>' + (escapeHtml(item.data.remark) || '-') + '</td>' +
             '<td><span class="import-row-status ' + statusClass + '">' + statusText + '</span></td>' +
             '</tr>';
@@ -3056,6 +3326,13 @@ function confirmImport() {
     const now = new Date().toISOString();
     const newDocs = importValidData.map(function(item) {
         const dept = item.data.undertakingDepartment || item.data.department || '';
+        let deadline = item.data.deadline;
+        if (!deadline && item.data.receiveDate && item.data.urgency) {
+            const days = getDeadlineDaysByUrgency(item.data.urgency);
+            const deadlineDate = new Date(item.data.receiveDate);
+            deadlineDate.setDate(deadlineDate.getDate() + days);
+            deadline = formatDateInput(deadlineDate);
+        }
         return {
             id: generateId(),
             fromUnit: item.data.fromUnit,
@@ -3067,7 +3344,7 @@ function confirmImport() {
             proposedDepartment: item.data.proposedDepartment || '',
             undertakingDepartment: dept,
             coDepartments: item.data.coDepartments || [],
-            deadline: item.data.deadline,
+            deadline: deadline,
             remark: item.data.remark || '',
             flowStatus: FLOW_STATUS.PENDING_REVIEW,
             completed: false,
@@ -3590,6 +3867,13 @@ function confirmRestore() {
         }
 
         if (!matchDoc) {
+            let deadline = item.deadline;
+            if (!deadline && item.receiveDate && item.urgency) {
+                const days = getDeadlineDaysByUrgency(item.urgency);
+                const deadlineDate = new Date(item.receiveDate);
+                deadlineDate.setDate(deadlineDate.getDate() + days);
+                deadline = formatDateInput(deadlineDate);
+            }
             const newDoc = {
                 id: item.id || generateId(),
                 fromUnit: item.fromUnit,
@@ -3598,7 +3882,7 @@ function confirmRestore() {
                 receiveDate: item.receiveDate,
                 urgency: item.urgency,
                 department: item.department,
-                deadline: item.deadline,
+                deadline: deadline,
                 remark: item.remark || '',
                 completed: item.completed || false,
                 completedAt: item.completedAt || null,
@@ -4109,7 +4393,8 @@ function renderAuditLogList() {
             'batch_restore_recycle': '↩',
             'permanent_delete': '✕',
             'batch_permanent_delete': '✕',
-            'empty_recycle_bin': '🗑'
+            'empty_recycle_bin': '🗑',
+            'flow_rule_change': '⚙️'
         };
         const icon = actionIconMap[log.action] || '📝';
         const timeStr = formatDateTime(log.timestamp);
@@ -4326,8 +4611,20 @@ function init() {
         const templateSelect = document.getElementById('templateSelect');
         if (templateSelect && templateSelect.value) {
             applyTemplate(templateSelect.value);
+        } else {
+            const urgencyEl = document.getElementById('urgency');
+            if (urgencyEl) {
+                updateAddModalDeadlineByUrgency(urgencyEl.value);
+            }
         }
     });
+
+    const urgencySelect = document.getElementById('urgency');
+    if (urgencySelect) {
+        urgencySelect.addEventListener('change', function() {
+            updateAddModalDeadlineByUrgency(this.value);
+        });
+    }
 
     document.getElementById('templateName').addEventListener('input', function() {
         clearTimeout(window.templateDupTimer);

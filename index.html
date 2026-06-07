@@ -83,6 +83,9 @@
                 <button class="search-btn" onclick="searchDocuments()">🔍</button>
             </div>
             <div class="toolbar-actions">
+                <button class="btn btn-default" onclick="openFlowRuleModal()">
+                    <span class="btn-icon">⚙️</span> 流程规则
+                </button>
                 <button class="btn btn-default" onclick="switchView('audit_log')">
                     <span class="btn-icon">📝</span> 审计日志
                 </button>
@@ -1076,6 +1079,115 @@
             <div class="modal-footer">
                 <button class="btn btn-default" onclick="closeSnoozeModal()">取消</button>
                 <button class="btn btn-primary" onclick="confirmSnooze()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="flowRuleModal">
+        <div class="modal-overlay" onclick="closeFlowRuleModal()"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>⚙️ 流程规则配置</h2>
+                <button class="modal-close" onclick="closeFlowRuleModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="rule-section">
+                    <div class="rule-section-header">
+                        <span class="rule-section-icon">⏱</span>
+                        <span class="rule-section-title">紧急程度默认办理天数</span>
+                    </div>
+                    <div class="rule-section-desc">新增收文时，将根据紧急程度自动计算默认办理期限</div>
+                    <div class="urgency-days-grid">
+                        <div class="urgency-days-item">
+                            <label class="urgency-days-label" for="urgencyDaysNormal">普通</label>
+                            <div class="urgency-days-input-wrapper">
+                                <input type="number" id="urgencyDaysNormal" class="form-input urgency-days-input" min="1" max="365">
+                                <span class="urgency-days-unit">天</span>
+                            </div>
+                        </div>
+                        <div class="urgency-days-item">
+                            <label class="urgency-days-label" for="urgencyDaysUrgent">加急</label>
+                            <div class="urgency-days-input-wrapper">
+                                <input type="number" id="urgencyDaysUrgent" class="form-input urgency-days-input" min="1" max="365">
+                                <span class="urgency-days-unit">天</span>
+                            </div>
+                        </div>
+                        <div class="urgency-days-item">
+                            <label class="urgency-days-label" for="urgencyDaysExtraUrgent">特急</label>
+                            <div class="urgency-days-input-wrapper">
+                                <input type="number" id="urgencyDaysExtraUrgent" class="form-input urgency-days-input" min="1" max="365">
+                                <span class="urgency-days-unit">天</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rule-section">
+                    <div class="rule-section-header">
+                        <span class="rule-section-icon">📋</span>
+                        <span class="rule-section-title">流转规则</span>
+                    </div>
+                    <div class="rule-checkbox-item">
+                        <label class="rule-checkbox-label">
+                            <input type="checkbox" id="requireProposeBeforeAssign">
+                            <span class="custom-checkbox"></span>
+                            <span class="rule-checkbox-text">必须先拟办再交办</span>
+                        </label>
+                        <div class="rule-checkbox-hint">启用后，待拟办状态下只能进行拟办操作，拟办完成后才能交办</div>
+                    </div>
+                </div>
+
+                <div class="rule-section">
+                    <div class="rule-section-header">
+                        <span class="rule-section-icon">✅</span>
+                        <span class="rule-section-title">办结规则</span>
+                    </div>
+                    <div class="rule-section-desc">选择哪些状态下的收文可以被办结</div>
+                    <div class="completable-status-list">
+                        <label class="completable-status-item">
+                            <input type="checkbox" class="completable-status-checkbox" value="pending_review" onchange="updateCompletableStatusHint()">
+                            <span class="custom-checkbox"></span>
+                            <span class="completable-status-text">待拟办</span>
+                        </label>
+                        <label class="completable-status-item">
+                            <input type="checkbox" class="completable-status-checkbox" value="processing" onchange="updateCompletableStatusHint()">
+                            <span class="custom-checkbox"></span>
+                            <span class="completable-status-text">办理中</span>
+                        </label>
+                        <label class="completable-status-item">
+                            <input type="checkbox" class="completable-status-checkbox" value="pending_feedback" onchange="updateCompletableStatusHint()">
+                            <span class="custom-checkbox"></span>
+                            <span class="completable-status-text">待反馈</span>
+                        </label>
+                    </div>
+                    <div class="form-hint" id="completableStatusHint" style="margin-top: 12px;"></div>
+                </div>
+
+                <div class="rule-section">
+                    <div class="rule-section-header">
+                        <span class="rule-section-icon">ℹ️</span>
+                        <span class="rule-section-title">规则说明</span>
+                    </div>
+                    <div class="rule-tips">
+                        <div class="rule-tip-item">
+                            <span class="rule-tip-icon">💡</span>
+                            <span class="rule-tip-text">规则变更后立即生效，影响新增收文、导入、流转办理等所有操作</span>
+                        </div>
+                        <div class="rule-tip-item">
+                            <span class="rule-tip-icon">📝</span>
+                            <span class="rule-tip-text">规则变更会记录到审计日志中，便于追溯</span>
+                        </div>
+                        <div class="rule-tip-item">
+                            <span class="rule-tip-icon">⏰</span>
+                            <span class="rule-tip-text">已有收文的办理期限不会因规则变更而自动调整</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="resetFlowRules()">恢复默认</button>
+                <button class="btn btn-default" onclick="closeFlowRuleModal()">取消</button>
+                <button class="btn btn-primary" onclick="saveFlowRuleSettings()">保存规则</button>
             </div>
         </div>
     </div>
