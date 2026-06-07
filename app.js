@@ -80,6 +80,7 @@ const FLOW_ACTION = {
     ASSIGN: 'assign',
     PROGRESS: 'progress',
     FEEDBACK: 'feedback',
+    SUPERVISION: 'supervision',
     COMPLETE: 'complete'
 };
 
@@ -89,6 +90,7 @@ const FLOW_ACTION_TEXT = {
     'assign': '交办',
     'progress': '进展更新',
     'feedback': '反馈',
+    'supervision': '督办',
     'complete': '办结'
 };
 
@@ -1855,14 +1857,20 @@ function renderLatestRecordSummary(doc) {
 }
 
 function renderFlowTimeline(doc) {
-    const flowRecords = (doc.flowRecords || []).map(function(record) {
+    const supervisionSourceRecords = doc.supervisionRecords || [];
+    const supervisionRecordIds = new Set(supervisionSourceRecords.map(function(record) {
+        return record.id;
+    }));
+    const flowRecords = (doc.flowRecords || []).filter(function(record) {
+        return !(record.action === FLOW_ACTION.SUPERVISION && supervisionRecordIds.has(record.supervisionId));
+    }).map(function(record) {
         return {
             type: 'flow',
             createdAt: record.createdAt,
             record: record
         };
     });
-    const supervisionRecords = (doc.supervisionRecords || []).map(function(record) {
+    const supervisionRecords = supervisionSourceRecords.map(function(record) {
         return {
             type: 'supervision',
             createdAt: record.createdAt,
@@ -1944,6 +1952,7 @@ function renderFlowTimeline(doc) {
         else if (record.action === FLOW_ACTION.ASSIGN) icon = '📤';
         else if (record.action === FLOW_ACTION.PROGRESS) icon = '🔄';
         else if (record.action === FLOW_ACTION.FEEDBACK) icon = '📥';
+        else if (record.action === FLOW_ACTION.SUPERVISION) icon = '📢';
         else if (record.action === FLOW_ACTION.COMPLETE) icon = '✅';
 
         const isComplete = record.action === FLOW_ACTION.COMPLETE;
@@ -3773,6 +3782,23 @@ function executeBatchFlowAction(e) {
                     const supervisionRecords = doc.supervisionRecords || [];
                     supervisionRecords.push(supervisionRecord);
 
+                    const flowRecord = {
+                        id: generateId(),
+                        action: FLOW_ACTION.SUPERVISION,
+                        actionText: FLOW_ACTION_TEXT[FLOW_ACTION.SUPERVISION] || '督办',
+                        fromStatus: doc.flowStatus,
+                        toStatus: doc.flowStatus,
+                        opinion: supervisionReason,
+                        handler: supervisionSupervisor || '',
+                        department: doc.undertakingDepartment || doc.department || '',
+                        supervisionId: supervisionRecord.id,
+                        feedbackDeadline: supervisionDeadline,
+                        createdAt: now
+                    };
+
+                    const flowRecords = doc.flowRecords || [];
+                    flowRecords.push(flowRecord);
+
                     const processingRecord = {
                         id: generateId(),
                         type: 'supervision',
@@ -3790,6 +3816,7 @@ function executeBatchFlowAction(e) {
                     const newDoc = {
                         ...doc,
                         supervisionRecords: supervisionRecords,
+                        flowRecords: flowRecords,
                         processingRecords: processingRecords
                     };
 
