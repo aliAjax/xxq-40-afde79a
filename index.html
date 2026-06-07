@@ -277,6 +277,48 @@
                 <span class="batch-count">已选 <span id="selectedCount">0</span> 条</span>
             </div>
             <div class="batch-actions">
+                <div class="batch-flow-dropdown">
+                    <button class="btn btn-primary btn-sm" onclick="toggleBatchFlowMenu()">
+                        <span class="btn-icon">🔄</span> 批量流转办理 <span class="dropdown-arrow">▼</span>
+                    </button>
+                    <div class="batch-flow-menu" id="batchFlowMenu">
+                        <div class="batch-flow-menu-item" onclick="openBatchFlowModal('propose')">
+                            <span class="batch-flow-menu-icon">💡</span>
+                            <div class="batch-flow-menu-text">
+                                <div class="batch-flow-menu-title">批量拟办</div>
+                                <div class="batch-flow-menu-desc">批量指定拟办科室和意见</div>
+                            </div>
+                        </div>
+                        <div class="batch-flow-menu-item" onclick="openBatchFlowModal('transfer')">
+                            <span class="batch-flow-menu-icon">📤</span>
+                            <div class="batch-flow-menu-text">
+                                <div class="batch-flow-menu-title">批量转办</div>
+                                <div class="batch-flow-menu-desc">批量转交给承办科室办理</div>
+                            </div>
+                        </div>
+                        <div class="batch-flow-menu-item" onclick="openBatchFlowModal('assign_co')">
+                            <span class="batch-flow-menu-icon">🤝</span>
+                            <div class="batch-flow-menu-text">
+                                <div class="batch-flow-menu-title">批量指定协办</div>
+                                <div class="batch-flow-menu-desc">批量添加协办科室</div>
+                            </div>
+                        </div>
+                        <div class="batch-flow-menu-item" onclick="openBatchFlowModal('feedback')">
+                            <span class="batch-flow-menu-icon">📥</span>
+                            <div class="batch-flow-menu-text">
+                                <div class="batch-flow-menu-title">批量反馈</div>
+                                <div class="batch-flow-menu-desc">批量提交反馈，等待审核</div>
+                            </div>
+                        </div>
+                        <div class="batch-flow-menu-item" onclick="openBatchFlowModal('supervision')">
+                            <span class="batch-flow-menu-icon">📢</span>
+                            <div class="batch-flow-menu-text">
+                                <div class="batch-flow-menu-title">批量督办</div>
+                                <div class="batch-flow-menu-desc">批量发起督办提醒</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <button class="btn btn-success btn-sm" onclick="openBatchCompleteModal()" id="batchCompleteBtn">
                     <span class="btn-icon">✓</span> 批量办结
                 </button>
@@ -1593,6 +1635,145 @@
                 <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
                     <button type="button" class="btn btn-default" onclick="closeSupervisionFeedbackModal()">取消</button>
                     <button type="submit" class="btn btn-success">确认反馈</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="batchFlowModal">
+        <div class="modal-overlay" onclick="closeBatchFlowModal()"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="batchFlowTitle">批量流转办理</h2>
+                <button class="modal-close" onclick="closeBatchFlowModal()">✕</button>
+            </div>
+            <form id="batchFlowForm" class="modal-body" onsubmit="executeBatchFlowAction(event)">
+                <input type="hidden" id="batchFlowActionType">
+
+                <div class="batch-flow-summary">
+                    <div class="batch-flow-summary-item valid">
+                        <span class="batch-flow-summary-label">可操作</span>
+                        <span class="batch-flow-summary-value" id="batchFlowValidCount">0</span>
+                        <span class="batch-flow-summary-unit">条</span>
+                    </div>
+                    <div class="batch-flow-summary-item skipped">
+                        <span class="batch-flow-summary-label">跳过</span>
+                        <span class="batch-flow-summary-value" id="batchFlowSkippedCount">0</span>
+                        <span class="batch-flow-summary-unit">条</span>
+                    </div>
+                </div>
+
+                <div class="batch-flow-fields" id="batchFlowFields">
+                    <div class="form-row" id="batchFlowDeptRow" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label" id="batchFlowDeptLabel">科室 <span class="required">*</span></label>
+                            <select id="batchFlowDepartment" class="form-input">
+                                <option value="">请选择科室</option>
+                                <option value="办公室">办公室</option>
+                                <option value="综合科">综合科</option>
+                                <option value="业务一科">业务一科</option>
+                                <option value="业务二科">业务二科</option>
+                                <option value="法制科">法制科</option>
+                                <option value="财务科">财务科</option>
+                                <option value="人事科">人事科</option>
+                                <option value="信息科">信息科</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="batchFlowCoDeptGroup" style="display: none;">
+                        <label class="form-label">协办科室</label>
+                        <div class="checkbox-group" id="batchFlowCoDeptCheckboxes">
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="办公室">
+                                <span class="custom-checkbox"></span>
+                                办公室
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="综合科">
+                                <span class="custom-checkbox"></span>
+                                综合科
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="业务一科">
+                                <span class="custom-checkbox"></span>
+                                业务一科
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="业务二科">
+                                <span class="custom-checkbox"></span>
+                                业务二科
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="法制科">
+                                <span class="custom-checkbox"></span>
+                                法制科
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="财务科">
+                                <span class="custom-checkbox"></span>
+                                财务科
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="人事科">
+                                <span class="custom-checkbox"></span>
+                                人事科
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" value="信息科">
+                                <span class="custom-checkbox"></span>
+                                信息科
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="form-group" id="batchFlowOpinionGroup">
+                        <label class="form-label" id="batchFlowOpinionLabel">意见</label>
+                        <textarea id="batchFlowOpinion" class="form-input form-textarea" placeholder="请输入统一的办理意见（选填）" rows="3"></textarea>
+                    </div>
+
+                    <div class="form-group" id="batchFlowHandlerGroup">
+                        <label class="form-label" for="batchFlowHandler">处理人</label>
+                        <input type="text" id="batchFlowHandler" class="form-input" placeholder="请输入处理人姓名（选填）">
+                    </div>
+
+                    <div class="form-group" id="batchFlowSupervisionReasonGroup" style="display: none;">
+                        <label class="form-label" for="batchFlowSupervisionReason">督办原因 <span class="required">*</span></label>
+                        <textarea id="batchFlowSupervisionReason" class="form-input form-textarea" placeholder="请输入督办原因..." rows="3"></textarea>
+                    </div>
+
+                    <div class="form-group" id="batchFlowSupervisionSupervisorGroup" style="display: none;">
+                        <label class="form-label" for="batchFlowSupervisionSupervisor">督办人</label>
+                        <input type="text" id="batchFlowSupervisionSupervisor" class="form-input" placeholder="请输入督办人姓名（选填）">
+                    </div>
+
+                    <div class="form-group" id="batchFlowSupervisionDeadlineGroup" style="display: none;">
+                        <label class="form-label" for="batchFlowSupervisionDeadline">要求反馈时间 <span class="required">*</span></label>
+                        <input type="date" id="batchFlowSupervisionDeadline" class="form-input">
+                    </div>
+                </div>
+
+                <div class="batch-flow-preview">
+                    <div class="batch-flow-preview-section">
+                        <div class="batch-flow-preview-header">
+                            <span class="batch-flow-preview-icon valid">✅</span>
+                            <span class="batch-flow-preview-title">可操作的收文（<span id="batchFlowValidPreviewCount">0</span>条）</span>
+                        </div>
+                        <div class="batch-flow-preview-list" id="batchFlowValidList"></div>
+                    </div>
+
+                    <div class="batch-flow-preview-section" id="batchFlowSkippedSection" style="display: none;">
+                        <div class="batch-flow-preview-header">
+                            <span class="batch-flow-preview-icon skipped">⚠️</span>
+                            <span class="batch-flow-preview-title">跳过的收文（<span id="batchFlowSkippedPreviewCount">0</span>条）</span>
+                        </div>
+                        <div class="batch-flow-preview-list" id="batchFlowSkippedList"></div>
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeBatchFlowModal()">取消</button>
+                    <button type="submit" class="btn btn-primary" id="batchFlowSubmitBtn">确认操作</button>
                 </div>
             </form>
         </div>

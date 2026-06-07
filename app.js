@@ -102,6 +102,30 @@ const SUPERVISION_STATUS_TEXT = {
     'feedback': '已反馈'
 };
 
+const BATCH_FLOW_ACTION = {
+    PROPOSE: 'propose',
+    TRANSFER: 'transfer',
+    ASSIGN_CO: 'assign_co',
+    FEEDBACK: 'feedback',
+    SUPERVISION: 'supervision'
+};
+
+const BATCH_FLOW_ACTION_TEXT = {
+    'propose': '批量拟办',
+    'transfer': '批量转办',
+    'assign_co': '批量指定协办',
+    'feedback': '批量反馈',
+    'supervision': '批量督办'
+};
+
+const BATCH_FLOW_ACTION_ICON = {
+    'propose': '💡',
+    'transfer': '📤',
+    'assign_co': '🤝',
+    'feedback': '📥',
+    'supervision': '📢'
+};
+
 let currentSupervisionDocId = null;
 
 let currentView = 'list';
@@ -123,6 +147,9 @@ let auditLogKeyword = '';
 let currentViewPresetId = null;
 let viewPresetMenuOpen = false;
 let viewPresetManageMode = false;
+let currentBatchFlowAction = null;
+let batchFlowValidDocs = [];
+let batchFlowSkippedDocs = [];
 
 function migrateDocument(doc) {
     const migrated = { ...doc };
@@ -3259,7 +3286,526 @@ function executeBatchDepartment(e) {
     selectedIds = [];
     closeBatchDepartmentModal();
     updateStats();
+    renderReminderCenter();
     renderDocumentList();
+    if (currentView === 'board') {
+        renderDepartmentBoard();
+    }
+}
+
+function toggleBatchFlowMenu() {
+    const menu = document.getElementById('batchFlowMenu');
+    if (menu) {
+        menu.classList.toggle('show');
+    }
+}
+
+function closeBatchFlowMenu() {
+    const menu = document.getElementById('batchFlowMenu');
+    if (menu) {
+        menu.classList.remove('show');
+    }
+}
+
+function getBatchFlowSelectedCoDepartments() {
+    const checkboxes = document.querySelectorAll('#batchFlowCoDeptCheckboxes input[type="checkbox"]:checked');
+    const selected = [];
+    checkboxes.forEach(function(cb) {
+        selected.push(cb.value);
+    });
+    return selected;
+}
+
+function renderBatchFlowPreviewLists() {
+    const validListEl = document.getElementById('batchFlowValidList');
+    const skippedListEl = document.getElementById('batchFlowSkippedList');
+    const skippedSection = document.getElementById('batchFlowSkippedSection');
+
+    if (validListEl) {
+        validListEl.innerHTML = batchFlowValidDocs.map(function(doc) {
+            return `
+                <div class="batch-flow-preview-item">
+                    <div class="batch-flow-preview-title">${escapeHtml(doc.title)}</div>
+                    <div class="batch-flow-preview-meta">
+                        <span class="batch-flow-preview-dept">${escapeHtml(doc.undertakingDepartment || doc.department || '')}</span>
+                        <span class="batch-flow-preview-status">${escapeHtml(FLOW_STATUS_TEXT[doc.flowStatus] || doc.flowStatus)}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    if (skippedListEl) {
+        skippedListEl.innerHTML = batchFlowSkippedDocs.map(function(item) {
+            return `
+                <div class="batch-flow-preview-item skipped">
+                    <div class="batch-flow-preview-title">${escapeHtml(item.doc.title)}</div>
+                    <div class="batch-flow-preview-meta">
+                        <span class="batch-flow-preview-dept">${escapeHtml(item.doc.undertakingDepartment || item.doc.department || '')}</span>
+                        <span class="batch-flow-preview-status">${escapeHtml(FLOW_STATUS_TEXT[item.doc.flowStatus] || item.doc.flowStatus)}</span>
+                    </div>
+                    <div class="batch-flow-skip-reason">${escapeHtml(item.reason)}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    const validCountEl = document.getElementById('batchFlowValidCount');
+    const skippedCountEl = document.getElementById('batchFlowSkippedCount');
+    const validPreviewCountEl = document.getElementById('batchFlowValidPreviewCount');
+    const skippedPreviewCountEl = document.getElementById('batchFlowSkippedPreviewCount');
+
+    if (validCountEl) validCountEl.textContent = batchFlowValidDocs.length;
+    if (skippedCountEl) skippedCountEl.textContent = batchFlowSkippedDocs.length;
+    if (validPreviewCountEl) validPreviewCountEl.textContent = batchFlowValidDocs.length;
+    if (skippedPreviewCountEl) skippedPreviewCountEl.textContent = batchFlowSkippedDocs.length;
+
+    if (skippedSection) {
+        skippedSection.style.display = batchFlowSkippedDocs.length > 0 ? 'block' : 'none';
+    }
+}
+
+function openBatchFlowModal(action) {
+    if (selectedIds.length === 0) {
+        showToast('请先选择收文', 'info');
+        return;
+    }
+
+    closeBatchFlowMenu();
+    currentBatchFlowAction = action;
+
+    const selectedDocs = getSelectedDocuments();
+    const result = validateBatchFlowDocuments(selectedDocs, action);
+    batchFlowValidDocs = result.valid;
+    batchFlowSkippedDocs = result.skipped;
+
+    if (batchFlowValidDocs.length === 0) {
+        let reason = '所选收文均不符合操作条件';
+        if (batchFlowSkippedDocs.length > 0) {
+            reason = batchFlowSkippedDocs[0].reason;
+        }
+        showToast(reason, 'info');
+        return;
+    }
+
+    const titleEl = document.getElementById('batchFlowTitle');
+    if (titleEl) {
+        titleEl.textContent = BATCH_FLOW_ACTION_TEXT[action] || '批量流转办理';
+    }
+
+    const actionTypeEl = document.getElementById('batchFlowActionType');
+    if (actionTypeEl) {
+        actionTypeEl.value = action;
+    }
+
+    const deptRow = document.getElementById('batchFlowDeptRow');
+    const deptLabel = document.getElementById('batchFlowDeptLabel');
+    const coDeptGroup = document.getElementById('batchFlowCoDeptGroup');
+    const opinionGroup = document.getElementById('batchFlowOpinionGroup');
+    const opinionLabel = document.getElementById('batchFlowOpinionLabel');
+    const handlerGroup = document.getElementById('batchFlowHandlerGroup');
+    const supervisionReasonGroup = document.getElementById('batchFlowSupervisionReasonGroup');
+    const supervisionSupervisorGroup = document.getElementById('batchFlowSupervisionSupervisorGroup');
+    const supervisionDeadlineGroup = document.getElementById('batchFlowSupervisionDeadlineGroup');
+    const submitBtn = document.getElementById('batchFlowSubmitBtn');
+
+    if (deptRow) deptRow.style.display = 'none';
+    if (coDeptGroup) coDeptGroup.style.display = 'none';
+    if (opinionGroup) opinionGroup.style.display = 'block';
+    if (handlerGroup) handlerGroup.style.display = 'block';
+    if (supervisionReasonGroup) supervisionReasonGroup.style.display = 'none';
+    if (supervisionSupervisorGroup) supervisionSupervisorGroup.style.display = 'none';
+    if (supervisionDeadlineGroup) supervisionDeadlineGroup.style.display = 'none';
+
+    const opinionEl = document.getElementById('batchFlowOpinion');
+    const handlerEl = document.getElementById('batchFlowHandler');
+    const deptSelectEl = document.getElementById('batchFlowDepartment');
+
+    if (opinionEl) opinionEl.value = '';
+    if (handlerEl) handlerEl.value = '';
+    if (deptSelectEl) deptSelectEl.value = '';
+
+    const coDeptCheckboxes = document.querySelectorAll('#batchFlowCoDeptCheckboxes input[type="checkbox"]');
+    coDeptCheckboxes.forEach(function(cb) {
+        cb.checked = false;
+    });
+
+    switch (action) {
+        case BATCH_FLOW_ACTION.PROPOSE:
+            if (deptRow) deptRow.style.display = 'flex';
+            if (deptLabel) deptLabel.innerHTML = '拟办科室 <span class="required">*</span>';
+            if (coDeptGroup) coDeptGroup.style.display = 'block';
+            if (opinionLabel) opinionLabel.textContent = '拟办意见';
+            if (submitBtn) submitBtn.className = 'btn btn-primary';
+            break;
+
+        case BATCH_FLOW_ACTION.TRANSFER:
+            if (deptRow) deptRow.style.display = 'flex';
+            if (deptLabel) deptLabel.innerHTML = '承办科室 <span class="required">*</span>';
+            if (coDeptGroup) coDeptGroup.style.display = 'block';
+            if (opinionLabel) opinionLabel.textContent = '转办意见';
+            if (submitBtn) submitBtn.className = 'btn btn-primary';
+            break;
+
+        case BATCH_FLOW_ACTION.ASSIGN_CO:
+            if (coDeptGroup) coDeptGroup.style.display = 'block';
+            if (opinionLabel) opinionLabel.textContent = '协办意见';
+            if (submitBtn) submitBtn.className = 'btn btn-primary';
+            break;
+
+        case BATCH_FLOW_ACTION.FEEDBACK:
+            if (opinionLabel) opinionLabel.innerHTML = '反馈内容 <span class="required">*</span>';
+            if (submitBtn) submitBtn.className = 'btn btn-info';
+            break;
+
+        case BATCH_FLOW_ACTION.SUPERVISION:
+            if (opinionGroup) opinionGroup.style.display = 'none';
+            if (handlerGroup) handlerGroup.style.display = 'none';
+            if (supervisionReasonGroup) supervisionReasonGroup.style.display = 'block';
+            if (supervisionSupervisorGroup) supervisionSupervisorGroup.style.display = 'block';
+            if (supervisionDeadlineGroup) supervisionDeadlineGroup.style.display = 'block';
+            if (submitBtn) submitBtn.className = 'btn btn-warning';
+
+            const today = getToday();
+            const defaultDeadline = new Date(today);
+            defaultDeadline.setDate(defaultDeadline.getDate() + 3);
+            const deadlineEl = document.getElementById('batchFlowSupervisionDeadline');
+            if (deadlineEl) {
+                deadlineEl.value = formatDateInput(defaultDeadline);
+            }
+            const reasonEl = document.getElementById('batchFlowSupervisionReason');
+            if (reasonEl) reasonEl.value = '';
+            const supervisorEl = document.getElementById('batchFlowSupervisionSupervisor');
+            if (supervisorEl) supervisorEl.value = '';
+            break;
+    }
+
+    renderBatchFlowPreviewLists();
+
+    const modal = document.getElementById('batchFlowModal');
+    if (modal) {
+        modal.classList.add('show');
+    }
+}
+
+function closeBatchFlowModal() {
+    const modal = document.getElementById('batchFlowModal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
+    currentBatchFlowAction = null;
+    batchFlowValidDocs = [];
+    batchFlowSkippedDocs = [];
+}
+
+function executeBatchFlowAction(e) {
+    if (e) {
+        e.preventDefault();
+    }
+
+    if (!currentBatchFlowAction || batchFlowValidDocs.length === 0) {
+        showToast('没有可操作的收文', 'error');
+        return;
+    }
+
+    const opinion = document.getElementById('batchFlowOpinion')?.value.trim() || '';
+    const handler = document.getElementById('batchFlowHandler')?.value.trim() || '';
+    const department = document.getElementById('batchFlowDepartment')?.value || '';
+    const coDepartments = getBatchFlowSelectedCoDepartments();
+
+    const allDocs = loadAllDocuments();
+    const now = new Date().toISOString();
+    let count = 0;
+    const changedDocs = [];
+
+    switch (currentBatchFlowAction) {
+        case BATCH_FLOW_ACTION.PROPOSE:
+            if (!department) {
+                showToast('请选择拟办科室', 'error');
+                return;
+            }
+
+            allDocs.forEach(function(doc) {
+                if (batchFlowValidDocs.some(function(d) { return d.id === doc.id; })) {
+                    const oldDoc = { ...doc };
+
+                    const flowRecord = {
+                        id: generateId(),
+                        action: FLOW_ACTION.PROPOSE,
+                        actionText: FLOW_ACTION_TEXT[FLOW_ACTION.PROPOSE] || '拟办',
+                        fromStatus: doc.flowStatus,
+                        toStatus: doc.flowStatus === FLOW_STATUS.PENDING_REVIEW ? FLOW_STATUS.PROCESSING : doc.flowStatus,
+                        opinion: opinion || '批量拟办',
+                        handler: handler || '',
+                        department: department,
+                        createdAt: now
+                    };
+
+                    const flowRecords = doc.flowRecords || [];
+                    flowRecords.push(flowRecord);
+
+                    const newDoc = {
+                        ...doc,
+                        flowStatus: doc.flowStatus === FLOW_STATUS.PENDING_REVIEW ? FLOW_STATUS.PROCESSING : doc.flowStatus,
+                        proposedDepartment: department,
+                        coDepartments: coDepartments.length > 0 ? coDepartments : doc.coDepartments || [],
+                        flowRecords: flowRecords
+                    };
+
+                    const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
+                    if (index > -1) {
+                        allDocs[index] = newDoc;
+                    }
+
+                    changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
+                    count++;
+                }
+            });
+            break;
+
+        case BATCH_FLOW_ACTION.TRANSFER:
+            if (!department) {
+                showToast('请选择承办科室', 'error');
+                return;
+            }
+
+            allDocs.forEach(function(doc) {
+                if (batchFlowValidDocs.some(function(d) { return d.id === doc.id; })) {
+                    const oldDoc = { ...doc };
+
+                    const flowRecord = {
+                        id: generateId(),
+                        action: FLOW_ACTION.ASSIGN,
+                        actionText: FLOW_ACTION_TEXT[FLOW_ACTION.ASSIGN] || '交办',
+                        fromStatus: doc.flowStatus,
+                        toStatus: FLOW_STATUS.PROCESSING,
+                        opinion: opinion || '批量转办',
+                        handler: handler || '',
+                        department: department,
+                        createdAt: now
+                    };
+
+                    const flowRecords = doc.flowRecords || [];
+                    flowRecords.push(flowRecord);
+
+                    const newDoc = {
+                        ...doc,
+                        flowStatus: FLOW_STATUS.PROCESSING,
+                        undertakingDepartment: department,
+                        department: department,
+                        coDepartments: coDepartments.length > 0 ? coDepartments : doc.coDepartments || [],
+                        flowRecords: flowRecords
+                    };
+
+                    const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
+                    if (index > -1) {
+                        allDocs[index] = newDoc;
+                    }
+
+                    changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
+                    count++;
+                }
+            });
+            break;
+
+        case BATCH_FLOW_ACTION.ASSIGN_CO:
+            allDocs.forEach(function(doc) {
+                if (batchFlowValidDocs.some(function(d) { return d.id === doc.id; })) {
+                    const oldDoc = { ...doc };
+
+                    const flowRecord = {
+                        id: generateId(),
+                        action: FLOW_ACTION.PROGRESS,
+                        actionText: FLOW_ACTION_TEXT[FLOW_ACTION.PROGRESS] || '进展更新',
+                        fromStatus: doc.flowStatus,
+                        toStatus: doc.flowStatus,
+                        opinion: opinion || '批量指定协办科室',
+                        handler: handler || '',
+                        department: doc.undertakingDepartment || doc.department || '',
+                        createdAt: now
+                    };
+
+                    const flowRecords = doc.flowRecords || [];
+                    flowRecords.push(flowRecord);
+
+                    const processingRecord = {
+                        id: generateId(),
+                        type: 'assign_co',
+                        content: opinion || '指定协办科室',
+                        handler: handler || '',
+                        coDepartments: coDepartments,
+                        createdAt: now
+                    };
+
+                    const processingRecords = doc.processingRecords || [];
+                    processingRecords.push(processingRecord);
+
+                    const newDoc = {
+                        ...doc,
+                        coDepartments: coDepartments,
+                        flowRecords: flowRecords,
+                        processingRecords: processingRecords
+                    };
+
+                    const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
+                    if (index > -1) {
+                        allDocs[index] = newDoc;
+                    }
+
+                    changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
+                    count++;
+                }
+            });
+            break;
+
+        case BATCH_FLOW_ACTION.FEEDBACK:
+            if (!opinion) {
+                showToast('请输入反馈内容', 'error');
+                return;
+            }
+
+            allDocs.forEach(function(doc) {
+                if (batchFlowValidDocs.some(function(d) { return d.id === doc.id; })) {
+                    const oldDoc = { ...doc };
+
+                    const flowRecord = {
+                        id: generateId(),
+                        action: FLOW_ACTION.FEEDBACK,
+                        actionText: FLOW_ACTION_TEXT[FLOW_ACTION.FEEDBACK] || '反馈',
+                        fromStatus: doc.flowStatus,
+                        toStatus: FLOW_STATUS.PENDING_FEEDBACK,
+                        opinion: opinion,
+                        handler: handler || '',
+                        department: doc.undertakingDepartment || doc.department || '',
+                        createdAt: now
+                    };
+
+                    const flowRecords = doc.flowRecords || [];
+                    flowRecords.push(flowRecord);
+
+                    const newDoc = {
+                        ...doc,
+                        flowStatus: FLOW_STATUS.PENDING_FEEDBACK,
+                        flowRecords: flowRecords
+                    };
+
+                    const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
+                    if (index > -1) {
+                        allDocs[index] = newDoc;
+                    }
+
+                    changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
+                    count++;
+                }
+            });
+            break;
+
+        case BATCH_FLOW_ACTION.SUPERVISION:
+            const supervisionReason = document.getElementById('batchFlowSupervisionReason')?.value.trim() || '';
+            const supervisionSupervisor = document.getElementById('batchFlowSupervisionSupervisor')?.value.trim() || '';
+            const supervisionDeadline = document.getElementById('batchFlowSupervisionDeadline')?.value || '';
+
+            if (!supervisionReason) {
+                showToast('请输入督办原因', 'error');
+                return;
+            }
+            if (!supervisionDeadline) {
+                showToast('请选择要求反馈时间', 'error');
+                return;
+            }
+
+            allDocs.forEach(function(doc) {
+                if (batchFlowValidDocs.some(function(d) { return d.id === doc.id; })) {
+                    const oldDoc = { ...doc };
+
+                    const supervisionRecord = {
+                        id: generateId(),
+                        reason: supervisionReason,
+                        supervisor: supervisionSupervisor,
+                        feedbackDeadline: supervisionDeadline,
+                        result: '',
+                        status: SUPERVISION_STATUS.PENDING,
+                        createdAt: now,
+                        feedbackAt: null
+                    };
+
+                    const supervisionRecords = doc.supervisionRecords || [];
+                    supervisionRecords.push(supervisionRecord);
+
+                    const newDoc = {
+                        ...doc,
+                        supervisionRecords: supervisionRecords
+                    };
+
+                    const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
+                    if (index > -1) {
+                        allDocs[index] = newDoc;
+                    }
+
+                    changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc, supervisionRecord: supervisionRecord });
+                    count++;
+                }
+            });
+            break;
+    }
+
+    saveDocuments(allDocs);
+
+    changedDocs.forEach(function(item) {
+        const extra = {
+            fromBatch: true,
+            handler: handler || '',
+            opinion: opinion || ''
+        };
+
+        let auditAction = null;
+        let historyRecord = null;
+
+        switch (currentBatchFlowAction) {
+            case BATCH_FLOW_ACTION.PROPOSE:
+                auditAction = AUDIT_ACTION.FLOW_PROPOSE;
+                extra.department = department || '';
+                extra.coDepartments = coDepartments;
+                break;
+            case BATCH_FLOW_ACTION.TRANSFER:
+                auditAction = AUDIT_ACTION.FLOW_ASSIGN;
+                extra.department = department || '';
+                extra.coDepartments = coDepartments;
+                break;
+            case BATCH_FLOW_ACTION.ASSIGN_CO:
+                auditAction = AUDIT_ACTION.FLOW_PROGRESS;
+                extra.coDepartments = coDepartments;
+                break;
+            case BATCH_FLOW_ACTION.FEEDBACK:
+                auditAction = AUDIT_ACTION.FLOW_FEEDBACK;
+                break;
+            case BATCH_FLOW_ACTION.SUPERVISION:
+                auditAction = AUDIT_ACTION.SUPERVISION_CREATE;
+                extra.supervisionId = item.supervisionRecord?.id || '';
+                extra.reason = document.getElementById('batchFlowSupervisionReason')?.value.trim() || '';
+                extra.supervisor = document.getElementById('batchFlowSupervisionSupervisor')?.value.trim() || '';
+                extra.feedbackDeadline = document.getElementById('batchFlowSupervisionDeadline')?.value || '';
+                break;
+        }
+
+        if (auditAction) {
+            historyRecord = addChangeHistoryRecord(item.newDoc.id, auditAction, null, item.oldDoc, item.newDoc, extra);
+            extra.changeHistoryRecordId = historyRecord.id;
+            addAuditLog(auditAction, item.newDoc, item.oldDoc, extra);
+        }
+    });
+
+    const actionText = BATCH_FLOW_ACTION_TEXT[currentBatchFlowAction] || '批量操作';
+    showToast(`${actionText}成功，共处理 ${count} 条收文`, 'success');
+
+    selectedIds = [];
+    closeBatchFlowModal();
+    updateStats();
+    renderReminderCenter();
+    renderDocumentList();
+    if (currentView === 'board') {
+        renderDepartmentBoard();
+    }
 }
 
 function switchTab(tab, options = {}) {
@@ -3772,6 +4318,72 @@ function getAvailableFlowActions(doc) {
     }
 
     return actions;
+}
+
+function canPerformBatchFlowAction(doc, action) {
+    if (!doc || doc.isDeleted) return { valid: false, reason: '收文不存在或已删除' };
+
+    const status = doc.flowStatus;
+    const requirePropose = isProposeRequiredBeforeAssign();
+    const hasProposeRecord = hasProposeFlowRecord(doc);
+
+    switch (action) {
+        case BATCH_FLOW_ACTION.PROPOSE:
+            if (status === FLOW_STATUS.DONE) {
+                return { valid: false, reason: '已办结的收文不能拟办' };
+            }
+            return { valid: true };
+
+        case BATCH_FLOW_ACTION.TRANSFER:
+            if (status === FLOW_STATUS.DONE) {
+                return { valid: false, reason: '已办结的收文不能转办' };
+            }
+            if (requirePropose && !hasProposeRecord) {
+                return { valid: false, reason: '需先拟办才能转办' };
+            }
+            return { valid: true };
+
+        case BATCH_FLOW_ACTION.ASSIGN_CO:
+            if (status === FLOW_STATUS.DONE) {
+                return { valid: false, reason: '已办结的收文不能指定协办' };
+            }
+            return { valid: true };
+
+        case BATCH_FLOW_ACTION.FEEDBACK:
+            if (status !== FLOW_STATUS.PROCESSING) {
+                return { valid: false, reason: '仅办理中的收文可以申请反馈' };
+            }
+            return { valid: true };
+
+        case BATCH_FLOW_ACTION.SUPERVISION:
+            if (status === FLOW_STATUS.DONE) {
+                return { valid: false, reason: '已办结的收文不能发起督办' };
+            }
+            const deadlineStatus = getDeadlineStatus(doc);
+            if (deadlineStatus !== 'overdue' && deadlineStatus !== 'urgent') {
+                return { valid: false, reason: '仅逾期或即将到期的收文可发起督办' };
+            }
+            return { valid: true };
+
+        default:
+            return { valid: false, reason: '未知操作类型' };
+    }
+}
+
+function validateBatchFlowDocuments(docs, action) {
+    const valid = [];
+    const skipped = [];
+
+    docs.forEach(function(doc) {
+        const result = canPerformBatchFlowAction(doc, action);
+        if (result.valid) {
+            valid.push(doc);
+        } else {
+            skipped.push({ doc: doc, reason: result.reason });
+        }
+    });
+
+    return { valid: valid, skipped: skipped };
 }
 
 let currentFlowDocId = null;
@@ -8093,6 +8705,11 @@ function init() {
         const viewPresetSelector = document.getElementById('viewPresetSelector');
         if (viewPresetSelector && !viewPresetSelector.contains(e.target)) {
             closeViewPresetMenu();
+        }
+
+        const batchFlowDropdown = document.querySelector('.batch-flow-dropdown');
+        if (batchFlowDropdown && !batchFlowDropdown.contains(e.target)) {
+            closeBatchFlowMenu();
         }
     });
 
