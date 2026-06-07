@@ -2281,6 +2281,232 @@ body {
     text-overflow: ellipsis;
 }
 
+.restore-package-info {
+    background: #f6ffed;
+    border: 1px solid #b7eb8f;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.package-info-row {
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+.package-info-row:last-child {
+    margin-bottom: 0;
+}
+
+.package-info-label {
+    color: #666;
+    width: 70px;
+    flex-shrink: 0;
+}
+
+.package-info-value {
+    color: #333;
+    font-weight: 500;
+}
+
+.package-info-value.checksum-valid {
+    color: #389e0d;
+}
+
+.package-info-value.checksum-invalid {
+    color: #cf1322;
+}
+
+.restore-data-types {
+    margin-bottom: 16px;
+}
+
+.data-types-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.data-types-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+}
+
+.data-type-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 8px;
+    background: #fafafa;
+    border: 2px solid #f0f0f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.data-type-item:hover {
+    border-color: #1890ff;
+    background: #e6f7ff;
+}
+
+.data-type-item input[type="checkbox"] {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.data-type-item:has(input[type="checkbox"]:checked) {
+    border-color: #1890ff;
+    background: #e6f7ff;
+}
+
+.data-type-icon {
+    font-size: 24px;
+}
+
+.data-type-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+}
+
+.data-type-count {
+    font-size: 11px;
+    color: #8c8c8c;
+}
+
+.restore-category-summary {
+    margin-bottom: 16px;
+}
+
+.category-summary-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.category-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+}
+
+.category-summary-card {
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.category-card-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.category-card-icon {
+    font-size: 16px;
+}
+
+.category-card-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: #333;
+}
+
+.category-card-stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.cat-stat {
+    flex: 1;
+    text-align: center;
+    padding: 4px 2px;
+    border-radius: 4px;
+}
+
+.cat-stat.add {
+    background: #f6ffed;
+}
+
+.cat-stat.overwrite {
+    background: #fffbe6;
+}
+
+.cat-stat.skip {
+    background: #f5f5f5;
+}
+
+.cat-stat-label {
+    display: block;
+    font-size: 10px;
+    color: #8c8c8c;
+    margin-bottom: 2px;
+}
+
+.cat-stat-value {
+    display: block;
+    font-size: 16px;
+    font-weight: 700;
+    color: #333;
+}
+
+.cat-stat.add .cat-stat-value {
+    color: #389e0d;
+}
+
+.cat-stat.overwrite .cat-stat-value {
+    color: #ad6800;
+}
+
+.cat-stat.skip .cat-stat-value {
+    color: #8c8c8c;
+}
+
+.preview-table-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+    border-bottom: 2px solid #f0f0f0;
+}
+
+.preview-tab {
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #666;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.preview-tab:hover {
+    color: #1890ff;
+}
+
+.preview-tab.active {
+    color: #1890ff;
+    border-bottom-color: #1890ff;
+    font-weight: 500;
+}
+
 .restore-preview-section {
     margin-top: 24px;
     padding-top: 20px;
@@ -2617,6 +2843,42 @@ body {
     .restore-duplicate-warning {
         flex-direction: column;
         gap: 8px;
+    }
+
+    .data-types-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+
+    .data-type-item {
+        padding: 10px 4px;
+    }
+
+    .data-type-icon {
+        font-size: 20px;
+    }
+
+    .data-type-name {
+        font-size: 12px;
+    }
+
+    .data-type-count {
+        font-size: 10px;
+    }
+
+    .category-summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+    }
+
+    .preview-table-tabs {
+        flex-wrap: wrap;
+    }
+
+    .preview-tab {
+        flex: 1 1 calc(25% - 4px);
+        font-size: 12px;
+        padding: 6px 8px;
     }
 }
 

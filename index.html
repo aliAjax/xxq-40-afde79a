@@ -923,6 +923,118 @@
                 <div id="restoreFileName" class="selected-file-name" style="display: none;"></div>
 
                 <div class="restore-preview-section" id="restorePreviewSection" style="display: none;">
+                    <div class="restore-package-info" id="restorePackageInfo">
+                        <div class="package-info-row">
+                            <span class="package-info-label">备份版本：</span>
+                            <span class="package-info-value" id="restorePackageVersion">-</span>
+                        </div>
+                        <div class="package-info-row">
+                            <span class="package-info-label">备份时间：</span>
+                            <span class="package-info-value" id="restoreBackupTime">-</span>
+                        </div>
+                        <div class="package-info-row">
+                            <span class="package-info-label">校验状态：</span>
+                            <span class="package-info-value" id="restoreChecksumStatus">-</span>
+                        </div>
+                    </div>
+
+                    <div class="restore-data-types">
+                        <div class="data-types-title">选择恢复内容</div>
+                        <div class="data-types-grid">
+                            <label class="data-type-item">
+                                <input type="checkbox" id="restoreTypeDocuments" checked onchange="updateRestorePreview()">
+                                <span class="data-type-icon">📄</span>
+                                <span class="data-type-name">收文数据</span>
+                                <span class="data-type-count" id="restoreTypeDocCount">0 条</span>
+                            </label>
+                            <label class="data-type-item">
+                                <input type="checkbox" id="restoreTypeTemplates" checked onchange="updateRestorePreview()">
+                                <span class="data-type-icon">📋</span>
+                                <span class="data-type-name">模板</span>
+                                <span class="data-type-count" id="restoreTypeTplCount">0 条</span>
+                            </label>
+                            <label class="data-type-item">
+                                <input type="checkbox" id="restoreTypeAuditLogs" checked onchange="updateRestorePreview()">
+                                <span class="data-type-icon">📝</span>
+                                <span class="data-type-name">审计日志</span>
+                                <span class="data-type-count" id="restoreTypeAuditCount">0 条</span>
+                            </label>
+                            <label class="data-type-item">
+                                <input type="checkbox" id="restoreTypeFlowRules" checked onchange="updateRestorePreview()">
+                                <span class="data-type-icon">⚙️</span>
+                                <span class="data-type-name">流程规则</span>
+                                <span class="data-type-count" id="restoreTypeFlowCount">0 项</span>
+                            </label>
+                            <label class="data-type-item">
+                                <input type="checkbox" id="restoreTypeViewPresets" checked onchange="updateRestorePreview()">
+                                <span class="data-type-icon">👁️</span>
+                                <span class="data-type-name">保存视图</span>
+                                <span class="data-type-count" id="restoreTypeViewCount">0 个</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="restore-category-summary" id="restoreCategorySummary">
+                        <div class="category-summary-title">恢复预览统计</div>
+                        <div class="category-summary-grid">
+                            <div class="category-summary-card">
+                                <div class="category-card-header">
+                                    <span class="category-card-icon">📄</span>
+                                    <span class="category-card-name">收文数据</span>
+                                </div>
+                                <div class="category-card-stats">
+                                    <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catDocAdd">0</span></div>
+                                    <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catDocOver">0</span></div>
+                                    <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catDocSkip">0</span></div>
+                                </div>
+                            </div>
+                            <div class="category-summary-card">
+                                <div class="category-card-header">
+                                    <span class="category-card-icon">📋</span>
+                                    <span class="category-card-name">模板</span>
+                                </div>
+                                <div class="category-card-stats">
+                                    <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catTplAdd">0</span></div>
+                                    <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catTplOver">0</span></div>
+                                    <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catTplSkip">0</span></div>
+                                </div>
+                            </div>
+                            <div class="category-summary-card">
+                                <div class="category-card-header">
+                                    <span class="category-card-icon">📝</span>
+                                    <span class="category-card-name">审计日志</span>
+                                </div>
+                                <div class="category-card-stats">
+                                    <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catAuditAdd">0</span></div>
+                                    <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catAuditOver">0</span></div>
+                                    <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catAuditSkip">0</span></div>
+                                </div>
+                            </div>
+                            <div class="category-summary-card">
+                                <div class="category-card-header">
+                                    <span class="category-card-icon">⚙️</span>
+                                    <span class="category-card-name">流程规则</span>
+                                </div>
+                                <div class="category-card-stats">
+                                    <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catFlowAdd">0</span></div>
+                                    <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catFlowOver">0</span></div>
+                                    <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catFlowSkip">0</span></div>
+                                </div>
+                            </div>
+                            <div class="category-summary-card">
+                                <div class="category-card-header">
+                                    <span class="category-card-icon">👁️</span>
+                                    <span class="category-card-name">保存视图</span>
+                                </div>
+                                <div class="category-card-stats">
+                                    <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catViewAdd">0</span></div>
+                                    <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catViewOver">0</span></div>
+                                    <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catViewSkip">0</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="restore-summary">
                         <div class="restore-summary-item total">
                             <span class="restore-summary-label">备份总数</span>
@@ -946,20 +1058,26 @@
                         <div class="restore-warning-icon">⚠️</div>
                         <div class="restore-warning-text">
                             <div class="restore-warning-title">检测到重复数据</div>
-                            <div class="restore-warning-desc">存在ID或文号重复的记录，您可以选择是否覆盖。默认情况下重复记录将被跳过。</div>
+                            <div class="restore-warning-desc">存在ID或名称重复的记录，您可以选择是否覆盖。默认情况下重复记录将被跳过。</div>
                         </div>
                     </div>
 
                     <div class="restore-options">
                         <label class="restore-option-label">
                             <input type="checkbox" id="restoreOverwriteCheckbox" onchange="updateRestorePreview()">
-                            <span class="restore-option-text">覆盖重复的记录（按ID和文号匹配）</span>
+                            <span class="restore-option-text">覆盖重复的记录</span>
                         </label>
                     </div>
 
                     <div class="restore-preview-table-wrapper">
-                        <table class="restore-preview-table">
-                            <thead>
+                        <div class="preview-table-tabs">
+                            <button class="preview-tab active" data-tab="documents" onclick="switchRestorePreviewTab('documents')">收文数据</button>
+                            <button class="preview-tab" data-tab="templates" onclick="switchRestorePreviewTab('templates')">模板</button>
+                            <button class="preview-tab" data-tab="auditLogs" onclick="switchRestorePreviewTab('auditLogs')">审计日志</button>
+                            <button class="preview-tab" data-tab="viewPresets" onclick="switchRestorePreviewTab('viewPresets')">保存视图</button>
+                        </div>
+                        <table class="restore-preview-table" id="restorePreviewTable">
+                            <thead id="restorePreviewTableHead">
                                 <tr>
                                     <th style="width: 50px;">序号</th>
                                     <th>标题</th>

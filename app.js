@@ -5013,52 +5013,203 @@ function exportFilteredCsv() {
     showToast('成功导出 ' + filtered.length + ' 条收文数据', 'success');
 }
 
+function generateChecksum(data) {
+    const jsonStr = JSON.stringify(data);
+    let hash = 0;
+    for (let i = 0; i < jsonStr.length; i++) {
+        const char = jsonStr.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0');
+}
+
 function exportFullJson() {
     closeExportMenu();
-    const documents = getDocuments();
+    const documents = loadAllDocuments();
+    const templates = getTemplates();
+    const auditLogs = getAuditLogs();
+    const flowRules = getFlowRules();
+    const viewPresets = getViewPresets();
 
-    if (documents.length === 0) {
+    const hasData = documents.length > 0 || templates.length > 0 || auditLogs.length > 0 ||
+        viewPresets.length > 0 || flowRules.updatedAt !== null;
+
+    if (!hasData) {
         showToast('当前没有数据可导出', 'error');
         return;
     }
 
+    const payload = {
+        documents: documents,
+        templates: templates,
+        auditLogs: auditLogs,
+        flowRules: flowRules,
+        viewPresets: viewPresets
+    };
+
+    const checksum = generateChecksum(payload);
+
     const exportData = {
-        version: '1.0',
-        exportTime: new Date().toISOString(),
-        totalCount: documents.length,
-        data: documents
+        packageType: 'full_backup',
+        version: '2.0',
+        backupTime: new Date().toISOString(),
+        summary: {
+            documents: documents.length,
+            templates: templates.length,
+            auditLogs: auditLogs.length,
+            flowRules: flowRules.updatedAt ? 1 : 0,
+            viewPresets: viewPresets.length
+        },
+        data: payload,
+        checksum: checksum
     };
 
     const jsonContent = JSON.stringify(exportData, null, 2);
     const filename = getExportFileName('完整备份', 'json');
     downloadFile(jsonContent, filename, 'application/json');
-    showToast('成功导出 ' + documents.length + ' 条收文备份', 'success');
+    const totalItems = documents.length + templates.length + auditLogs.length + viewPresets.length;
+    showToast('成功导出完整备份（' + totalItems + ' 条数据）', 'success');
 }
 
-let restoreData = [];
+let restorePackage = null;
 let restoreAnalysis = null;
+let currentRestoreTab = 'documents';
+
+const RESTORE_TYPES = {
+    DOCUMENTS: 'documents',
+    TEMPLATES: 'templates',
+    AUDIT_LOGS: 'auditLogs',
+    FLOW_RULES: 'flowRules',
+    VIEW_PRESETS: 'viewPresets'
+};
 
 function openRestoreModal() {
-    restoreData = [];
+    restorePackage = null;
     restoreAnalysis = null;
+    currentRestoreTab = 'documents';
     document.getElementById('restoreFileInput').value = '';
     document.getElementById('restoreFileName').style.display = 'none';
     document.getElementById('restorePreviewSection').style.display = 'none';
     document.getElementById('restoreOverwriteCheckbox').checked = false;
     document.getElementById('restoreConfirmBtn').disabled = true;
+
+    const typeCheckboxes = ['restoreTypeDocuments', 'restoreTypeTemplates', 'restoreTypeAuditLogs', 'restoreTypeFlowRules', 'restoreTypeViewPresets'];
+    typeCheckboxes.forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.checked = true;
+    });
+
+    document.querySelectorAll('.preview-tab').forEach(function(tab) {
+        tab.classList.remove('active');
+    });
+    const docTab = document.querySelector('.preview-tab[data-tab="documents"]');
+    if (docTab) docTab.classList.add('active');
+
     document.getElementById('restoreModal').classList.add('show');
 }
 
 function closeRestoreModal() {
     document.getElementById('restoreModal').classList.remove('show');
-    restoreData = [];
+    restorePackage = null;
     restoreAnalysis = null;
+    currentRestoreTab = 'documents';
 }
 
 function handleRestoreFileSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
     processRestoreFile(file);
+}
+
+function parseBackupFile(parsed) {
+    const result = {
+        version: '1.0',
+        backupTime: null,
+        isLegacy: false,
+        checksumValid: null,
+        data: {
+            documents: [],
+            templates: [],
+            auditLogs: [],
+            flowRules: null,
+            viewPresets: []
+        }
+    };
+
+    if (Array.isArray(parsed)) {
+        result.isLegacy = true;
+        result.data.documents = parsed;
+        return result;
+    }
+
+    if (parsed.packageType === 'full_backup' && parsed.data && typeof parsed.data === 'object') {
+        result.version = parsed.version || '2.0';
+        result.backupTime = parsed.backupTime || null;
+
+        const payload = parsed.data;
+        result.data.documents = Array.isArray(payload.documents) ? payload.documents : [];
+        result.data.templates = Array.isArray(payload.templates) ? payload.templates : [];
+        result.data.auditLogs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
+        result.data.flowRules = payload.flowRules || null;
+        result.data.viewPresets = Array.isArray(payload.viewPresets) ? payload.viewPresets : [];
+
+        if (parsed.checksum) {
+            const verifyChecksum = generateChecksum(payload);
+            result.checksumValid = verifyChecksum === parsed.checksum;
+        }
+
+        return result;
+    }
+
+    if (parsed.data && Array.isArray(parsed.data)) {
+        result.isLegacy = true;
+        result.version = parsed.version || '1.0';
+        result.backupTime = parsed.exportTime || null;
+        result.data.documents = parsed.data;
+        return result;
+    }
+
+    result.isLegacy = true;
+    result.data.documents = parsed.documents || [];
+    return result;
+}
+
+function normalizeDocument(doc) {
+    return {
+        id: doc.id || null,
+        fromUnit: doc.fromUnit,
+        docNumber: doc.docNumber,
+        title: doc.title,
+        receiveDate: doc.receiveDate,
+        urgency: doc.urgency,
+        department: doc.department,
+        deadline: doc.deadline || '',
+        remark: doc.remark || '',
+        completed: doc.completed === true,
+        completedAt: doc.completedAt || null,
+        completedRemark: doc.completedRemark || '',
+        processingRecords: doc.processingRecords || [],
+        flowStatus: doc.flowStatus || null,
+        flowRecords: Array.isArray(doc.flowRecords) ? doc.flowRecords : [],
+        proposedDepartment: doc.proposedDepartment || '',
+        undertakingDepartment: doc.undertakingDepartment || doc.department || '',
+        coDepartments: Array.isArray(doc.coDepartments) ? doc.coDepartments : [],
+        reminderNote: doc.reminderNote || '',
+        snoozeUntil: doc.snoozeUntil || '',
+        extendedDeadline: doc.extendedDeadline || '',
+        reminderHistory: Array.isArray(doc.reminderHistory) ? doc.reminderHistory : [],
+        supervisionRecords: doc.supervisionRecords === undefined ? null :
+            (Array.isArray(doc.supervisionRecords) ? doc.supervisionRecords : []),
+        isDeleted: doc.isDeleted === true,
+        deletedAt: doc.deletedAt || null,
+        createdAt: doc.createdAt || null
+    };
+}
+
+function isValidDocument(doc) {
+    return doc.fromUnit && doc.docNumber && doc.title &&
+        doc.receiveDate && doc.urgency && doc.department;
 }
 
 function processRestoreFile(file) {
@@ -5081,63 +5232,23 @@ function processRestoreFile(file) {
             }
             const parsed = JSON.parse(content);
 
-            let docs = [];
-            if (Array.isArray(parsed)) {
-                docs = parsed;
-            } else if (parsed.data && Array.isArray(parsed.data)) {
-                docs = parsed.data;
-            } else {
-                throw new Error('无效的备份文件格式');
-            }
+            restorePackage = parseBackupFile(parsed);
 
-            if (docs.length === 0) {
-                showToast('备份文件中没有数据', 'error');
+            const validDocs = restorePackage.data.documents.filter(isValidDocument);
+            restorePackage.data.documents = validDocs.map(normalizeDocument);
+
+            const hasAnyData = restorePackage.data.documents.length > 0 ||
+                restorePackage.data.templates.length > 0 ||
+                restorePackage.data.auditLogs.length > 0 ||
+                restorePackage.data.flowRules !== null ||
+                restorePackage.data.viewPresets.length > 0;
+
+            if (!hasAnyData) {
+                showToast('备份文件中没有有效数据', 'error');
                 return;
             }
 
-            const validDocs = docs.filter(function(doc) {
-                return doc.fromUnit && doc.docNumber && doc.title &&
-                    doc.receiveDate && doc.urgency && doc.department;
-            });
-
-            if (validDocs.length === 0) {
-                showToast('备份文件中没有有效的收文数据', 'error');
-                return;
-            }
-
-            const normalizedDocs = validDocs.map(function(doc) {
-                return {
-                    id: doc.id || null,
-                    fromUnit: doc.fromUnit,
-                    docNumber: doc.docNumber,
-                    title: doc.title,
-                    receiveDate: doc.receiveDate,
-                    urgency: doc.urgency,
-                    department: doc.department,
-                    deadline: doc.deadline || '',
-                    remark: doc.remark || '',
-                    completed: doc.completed === true,
-                    completedAt: doc.completedAt || null,
-                    completedRemark: doc.completedRemark || '',
-                    processingRecords: doc.processingRecords || [],
-                    flowStatus: doc.flowStatus || null,
-                    flowRecords: Array.isArray(doc.flowRecords) ? doc.flowRecords : [],
-                    proposedDepartment: doc.proposedDepartment || '',
-                    undertakingDepartment: doc.undertakingDepartment || doc.department || '',
-                    coDepartments: Array.isArray(doc.coDepartments) ? doc.coDepartments : [],
-                    reminderNote: doc.reminderNote || '',
-                    snoozeUntil: doc.snoozeUntil || '',
-                    extendedDeadline: doc.extendedDeadline || '',
-                    reminderHistory: Array.isArray(doc.reminderHistory) ? doc.reminderHistory : [],
-                    supervisionRecords: doc.supervisionRecords === undefined ? null :
-                        (Array.isArray(doc.supervisionRecords) ? doc.supervisionRecords : []),
-                    isDeleted: doc.isDeleted === true,
-                    deletedAt: doc.deletedAt || null,
-                    createdAt: doc.createdAt || null
-                };
-            });
-
-            restoreData = normalizedDocs;
+            updateDataTypeCounts();
             analyzeRestoreData();
             renderRestorePreview();
 
@@ -5151,45 +5262,79 @@ function processRestoreFile(file) {
     reader.readAsText(file, 'UTF-8');
 }
 
-function analyzeRestoreData() {
-    const existingDocs = loadAllDocuments();
-    const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
+function updateDataTypeCounts() {
+    if (!restorePackage) return;
 
-    const existingById = {};
-    const existingByDocNumber = {};
-    existingDocs.forEach(function(doc) {
-        if (doc.id) {
-            existingById[doc.id] = doc;
-        }
-        if (doc.docNumber) {
-            existingByDocNumber[doc.docNumber] = doc;
+    document.getElementById('restoreTypeDocCount').textContent = restorePackage.data.documents.length + ' 条';
+    document.getElementById('restoreTypeTplCount').textContent = restorePackage.data.templates.length + ' 条';
+    document.getElementById('restoreTypeAuditCount').textContent = restorePackage.data.auditLogs.length + ' 条';
+    document.getElementById('restoreTypeFlowCount').textContent = (restorePackage.data.flowRules ? 1 : 0) + ' 项';
+    document.getElementById('restoreTypeViewCount').textContent = restorePackage.data.viewPresets.length + ' 个';
+
+    const hasFlowRules = restorePackage.data.flowRules !== null;
+    const flowTypeCheckbox = document.getElementById('restoreTypeFlowRules');
+    if (flowTypeCheckbox && !hasFlowRules) {
+        flowTypeCheckbox.checked = false;
+        flowTypeCheckbox.disabled = true;
+    } else if (flowTypeCheckbox) {
+        flowTypeCheckbox.disabled = false;
+    }
+
+    const typeNames = ['Documents', 'Templates', 'AuditLogs', 'FlowRules', 'ViewPresets'];
+    const dataKeys = ['documents', 'templates', 'auditLogs', 'flowRules', 'viewPresets'];
+    typeNames.forEach(function(name, i) {
+        const checkbox = document.getElementById('restoreType' + name);
+        if (checkbox) {
+            const hasData = dataKeys[i] === 'flowRules'
+                ? restorePackage.data.flowRules !== null
+                : restorePackage.data[dataKeys[i]].length > 0;
+            if (!hasData) {
+                checkbox.checked = false;
+                checkbox.disabled = true;
+                checkbox.closest('.data-type-item').style.opacity = '0.5';
+            } else {
+                checkbox.disabled = false;
+                checkbox.closest('.data-type-item').style.opacity = '1';
+            }
         }
     });
+}
 
-    const seenIdsInBackup = {};
-    const seenDocNumbersInBackup = {};
+function analyzeArrayItems(items, existingItems, matchFields, overwrite) {
+    const existingMap = {};
+    const existingIndexMap = {};
+    existingItems.forEach(function(item, index) {
+        matchFields.forEach(function(field) {
+            if (item[field]) {
+                existingMap[field + ':' + item[field]] = item;
+                existingIndexMap[field + ':' + item[field]] = index;
+            }
+        });
+    });
+
+    const seenInBackup = {};
     const addItems = [];
     const overwriteItems = [];
     const skipItems = [];
 
-    restoreData.forEach(function(item) {
-        let matchDoc = null;
+    items.forEach(function(item) {
+        let matchItem = null;
         let matchType = null;
         let isInternalDuplicate = false;
 
-        if (item.id && seenIdsInBackup[item.id]) {
-            isInternalDuplicate = true;
-        }
-        if (!isInternalDuplicate && item.docNumber && seenDocNumbersInBackup[item.docNumber]) {
-            isInternalDuplicate = true;
+        for (let i = 0; i < matchFields.length; i++) {
+            const field = matchFields[i];
+            if (item[field] && seenInBackup[field + ':' + item[field]]) {
+                isInternalDuplicate = true;
+                break;
+            }
         }
 
-        if (item.id) {
-            seenIdsInBackup[item.id] = true;
-        }
-        if (item.docNumber) {
-            seenDocNumbersInBackup[item.docNumber] = true;
-        }
+        matchFields.forEach(function(field) {
+            if (item[field]) {
+                seenInBackup[field + ':' + item[field]] = true;
+            }
+        });
 
         if (isInternalDuplicate) {
             skipItems.push({
@@ -5202,60 +5347,291 @@ function analyzeRestoreData() {
             return;
         }
 
-        if (item.id && existingById[item.id]) {
-            matchDoc = existingById[item.id];
-            matchType = 'id';
-        } else if (item.docNumber && existingByDocNumber[item.docNumber]) {
-            matchDoc = existingByDocNumber[item.docNumber];
-            matchType = 'docNumber';
+        for (let i = 0; i < matchFields.length; i++) {
+            const field = matchFields[i];
+            const key = field + ':' + item[field];
+            if (item[field] && existingMap[key]) {
+                matchItem = existingMap[key];
+                matchType = field;
+                break;
+            }
         }
 
-        if (!matchDoc) {
+        if (!matchItem) {
             addItems.push({ data: item, action: 'add' });
         } else if (overwrite) {
             overwriteItems.push({
                 data: item,
                 action: 'overwrite',
-                matched: matchDoc,
-                matchType: matchType
+                matched: matchItem,
+                matchType: matchType,
+                existingIndex: existingIndexMap[matchType + ':' + matchItem[matchType]]
             });
         } else {
             skipItems.push({
                 data: item,
                 action: 'skip',
-                matched: matchDoc,
+                matched: matchItem,
                 matchType: matchType,
-                reason: matchType === 'id' ? 'ID重复' : '文号重复'
+                reason: matchFields[0] === 'id' ? 'ID重复' : '名称重复'
             });
         }
     });
 
+    return {
+        add: addItems,
+        overwrite: overwriteItems,
+        skip: skipItems,
+        all: addItems.concat(overwriteItems).concat(skipItems)
+    };
+}
+
+function analyzeRestoreData() {
+    if (!restorePackage) return;
+
+    const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
+    const typeDocs = document.getElementById('restoreTypeDocuments').checked;
+    const typeTpls = document.getElementById('restoreTypeTemplates').checked;
+    const typeAudit = document.getElementById('restoreTypeAuditLogs').checked;
+    const typeFlow = document.getElementById('restoreTypeFlowRules').checked;
+    const typeView = document.getElementById('restoreTypeViewPresets').checked;
+
+    const docAnalysis = typeDocs
+        ? analyzeArrayItems(restorePackage.data.documents, loadAllDocuments(), ['id', 'docNumber'], overwrite)
+        : { add: [], overwrite: [], skip: [], all: [] };
+
+    const tplAnalysis = typeTpls
+        ? analyzeArrayItems(restorePackage.data.templates, getTemplates(), ['id', 'name'], overwrite)
+        : { add: [], overwrite: [], skip: [], all: [] };
+
+    const auditAnalysis = typeAudit
+        ? analyzeArrayItems(restorePackage.data.auditLogs, getAuditLogs(), ['id'], overwrite)
+        : { add: [], overwrite: [], skip: [], all: [] };
+
+    const existingFlow = getFlowRules();
+    let flowAdd = 0, flowOver = 0, flowSkip = 0;
+    if (typeFlow && restorePackage.data.flowRules) {
+        if (!existingFlow.updatedAt) {
+            flowAdd = 1;
+        } else if (overwrite) {
+            flowOver = 1;
+        } else {
+            flowSkip = 1;
+        }
+    }
+
+    const viewAnalysis = typeView
+        ? analyzeArrayItems(restorePackage.data.viewPresets, getViewPresets(), ['id', 'name'], overwrite)
+        : { add: [], overwrite: [], skip: [], all: [] };
+
+    const totalAdd = docAnalysis.add.length + tplAnalysis.add.length + auditAnalysis.add.length + flowAdd + viewAnalysis.add.length;
+    const totalOver = docAnalysis.overwrite.length + tplAnalysis.overwrite.length + auditAnalysis.overwrite.length + flowOver + viewAnalysis.overwrite.length;
+    const totalSkip = docAnalysis.skip.length + tplAnalysis.skip.length + auditAnalysis.skip.length + flowSkip + viewAnalysis.skip.length;
+    const total = totalAdd + totalOver + totalSkip;
+
     restoreAnalysis = {
-        total: restoreData.length,
-        add: addItems.length,
-        overwrite: overwriteItems.length,
-        skip: skipItems.length,
-        hasDuplicate: overwriteItems.length > 0 || skipItems.length > 0,
-        items: addItems.concat(overwriteItems).concat(skipItems)
+        total: total,
+        add: totalAdd,
+        overwrite: totalOver,
+        skip: totalSkip,
+        hasDuplicate: totalOver > 0 || totalSkip > 0,
+        categories: {
+            documents: {
+                total: restorePackage.data.documents.length,
+                add: docAnalysis.add.length,
+                overwrite: docAnalysis.overwrite.length,
+                skip: docAnalysis.skip.length,
+                items: docAnalysis.all
+            },
+            templates: {
+                total: restorePackage.data.templates.length,
+                add: tplAnalysis.add.length,
+                overwrite: tplAnalysis.overwrite.length,
+                skip: tplAnalysis.skip.length,
+                items: tplAnalysis.all
+            },
+            auditLogs: {
+                total: restorePackage.data.auditLogs.length,
+                add: auditAnalysis.add.length,
+                overwrite: auditAnalysis.overwrite.length,
+                skip: auditAnalysis.skip.length,
+                items: auditAnalysis.all
+            },
+            flowRules: {
+                total: restorePackage.data.flowRules ? 1 : 0,
+                add: flowAdd,
+                overwrite: flowOver,
+                skip: flowSkip,
+                data: restorePackage.data.flowRules
+            },
+            viewPresets: {
+                total: restorePackage.data.viewPresets.length,
+                add: viewAnalysis.add.length,
+                overwrite: viewAnalysis.overwrite.length,
+                skip: viewAnalysis.skip.length,
+                items: viewAnalysis.all
+            }
+        }
     };
 }
 
 function updateRestorePreview() {
-    if (restoreData.length === 0) return;
+    if (!restorePackage) return;
     analyzeRestoreData();
     renderRestorePreview();
 }
 
-function renderRestorePreview() {
+function switchRestorePreviewTab(tab) {
+    currentRestoreTab = tab;
+    document.querySelectorAll('.preview-tab').forEach(function(t) {
+        t.classList.remove('active');
+    });
+    const activeTab = document.querySelector('.preview-tab[data-tab="' + tab + '"]');
+    if (activeTab) activeTab.classList.add('active');
+    renderRestorePreviewTable();
+}
+
+function getTableHeaders(tab) {
+    const headers = {
+        documents: ['序号', '标题', '文号', '来文单位', '承办科室', '处理方式'],
+        templates: ['序号', '模板名称', '来文单位', '紧急程度', '承办科室', '处理方式'],
+        auditLogs: ['序号', '操作类型', '收文标题', '文号', '操作时间', '处理方式'],
+        viewPresets: ['序号', '视图名称', '筛选科室', '视图类型', '创建时间', '处理方式']
+    };
+    return headers[tab] || headers.documents;
+}
+
+function getTableRow(item, index, tab) {
+    const statusMap = {
+        'add': { text: '新增', class: 'status-add' },
+        'overwrite': { text: '覆盖', class: 'status-overwrite' },
+        'skip': { text: '跳过', class: 'status-skip' }
+    };
+    const status = statusMap[item.action];
+    const rowClass = 'row-' + item.action;
+    const data = item.data;
+
+    let cells = '';
+    switch (tab) {
+        case 'documents':
+            cells =
+                '<td>' + escapeHtml(data.title || '-') + '</td>' +
+                '<td>' + escapeHtml(data.docNumber || '-') + '</td>' +
+                '<td>' + escapeHtml(data.fromUnit || '-') + '</td>' +
+                '<td>' + escapeHtml(data.department || '-') + '</td>';
+            break;
+        case 'templates':
+            cells =
+                '<td>' + escapeHtml(data.name || '-') + '</td>' +
+                '<td>' + escapeHtml(data.fromUnit || '-') + '</td>' +
+                '<td>' + escapeHtml(data.urgency || '-') + '</td>' +
+                '<td>' + escapeHtml(data.department || data.undertakingDepartment || '-') + '</td>';
+            break;
+        case 'auditLogs':
+            cells =
+                '<td>' + escapeHtml(data.actionText || data.action || '-') + '</td>' +
+                '<td>' + escapeHtml(data.docTitle || '-') + '</td>' +
+                '<td>' + escapeHtml(data.docNumber || '-') + '</td>' +
+                '<td>' + escapeHtml(data.timestamp ? data.timestamp.substring(0, 10) : '-') + '</td>';
+            break;
+        case 'viewPresets':
+            cells =
+                '<td>' + escapeHtml(data.name || '-') + '</td>' +
+                '<td>' + escapeHtml((data.filter && data.filter.department) || '-') + '</td>' +
+                '<td>' + escapeHtml(data.viewType === 'board' ? '科室看板' : '列表视图') + '</td>' +
+                '<td>' + escapeHtml(data.createdAt ? data.createdAt.substring(0, 10) : '-') + '</td>';
+            break;
+        default:
+            cells = '<td>-</td><td>-</td><td>-</td><td>-</td>';
+    }
+
+    return '<tr class="' + rowClass + '">' +
+        '<td>' + (index + 1) + '</td>' +
+        cells +
+        '<td><span class="restore-row-status ' + status.class + '">' + status.text + '</span></td>' +
+        '</tr>';
+}
+
+function renderRestorePreviewTable() {
     if (!restoreAnalysis) return;
 
-    const previewSection = document.getElementById('restorePreviewSection');
+    const thead = document.getElementById('restorePreviewTableHead');
     const tbody = document.getElementById('restorePreviewBody');
+    const headers = getTableHeaders(currentRestoreTab);
+
+    thead.innerHTML = '<tr>' + headers.map(function(h, i) {
+        let style = '';
+        if (i === 0) style = 'style="width: 50px;"';
+        if (i === headers.length - 1) style = 'style="width: 80px;"';
+        return '<th ' + style + '>' + h + '</th>';
+    }).join('') + '</tr>';
+
+    const category = restoreAnalysis.categories[currentRestoreTab];
+    if (!category || !category.items) {
+        tbody.innerHTML = '<tr><td colspan="' + headers.length + '" style="text-align:center;color:#999;padding:20px;">暂无数据</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = category.items.map(function(item, index) {
+        return getTableRow(item, index, currentRestoreTab);
+    }).join('');
+}
+
+function renderRestorePreview() {
+    if (!restoreAnalysis || !restorePackage) return;
+
+    const previewSection = document.getElementById('restorePreviewSection');
+
+    document.getElementById('restorePackageVersion').textContent =
+        (restorePackage.isLegacy ? '旧版格式 v' : 'v') + restorePackage.version +
+        (restorePackage.isLegacy ? '（仅收文）' : '');
+
+    if (restorePackage.backupTime) {
+        const bt = new Date(restorePackage.backupTime);
+        document.getElementById('restoreBackupTime').textContent =
+            bt.getFullYear() + '-' + String(bt.getMonth() + 1).padStart(2, '0') + '-' +
+            String(bt.getDate()).padStart(2, '0') + ' ' + String(bt.getHours()).padStart(2, '0') + ':' +
+            String(bt.getMinutes()).padStart(2, '0');
+    } else {
+        document.getElementById('restoreBackupTime').textContent = '未知';
+    }
+
+    const checksumEl = document.getElementById('restoreChecksumStatus');
+    if (restorePackage.checksumValid === null) {
+        checksumEl.textContent = '无校验信息';
+        checksumEl.className = 'package-info-value';
+    } else if (restorePackage.checksumValid) {
+        checksumEl.textContent = '✓ 校验通过';
+        checksumEl.className = 'package-info-value checksum-valid';
+    } else {
+        checksumEl.textContent = '✗ 校验失败（文件可能已损坏）';
+        checksumEl.className = 'package-info-value checksum-invalid';
+    }
 
     document.getElementById('restoreTotalCount').textContent = restoreAnalysis.total;
     document.getElementById('restoreAddCount').textContent = restoreAnalysis.add;
     document.getElementById('restoreOverwriteCount').textContent = restoreAnalysis.overwrite;
     document.getElementById('restoreSkipCount').textContent = restoreAnalysis.skip;
+
+    document.getElementById('catDocAdd').textContent = restoreAnalysis.categories.documents.add;
+    document.getElementById('catDocOver').textContent = restoreAnalysis.categories.documents.overwrite;
+    document.getElementById('catDocSkip').textContent = restoreAnalysis.categories.documents.skip;
+
+    document.getElementById('catTplAdd').textContent = restoreAnalysis.categories.templates.add;
+    document.getElementById('catTplOver').textContent = restoreAnalysis.categories.templates.overwrite;
+    document.getElementById('catTplSkip').textContent = restoreAnalysis.categories.templates.skip;
+
+    document.getElementById('catAuditAdd').textContent = restoreAnalysis.categories.auditLogs.add;
+    document.getElementById('catAuditOver').textContent = restoreAnalysis.categories.auditLogs.overwrite;
+    document.getElementById('catAuditSkip').textContent = restoreAnalysis.categories.auditLogs.skip;
+
+    document.getElementById('catFlowAdd').textContent = restoreAnalysis.categories.flowRules.add;
+    document.getElementById('catFlowOver').textContent = restoreAnalysis.categories.flowRules.overwrite;
+    document.getElementById('catFlowSkip').textContent = restoreAnalysis.categories.flowRules.skip;
+
+    document.getElementById('catViewAdd').textContent = restoreAnalysis.categories.viewPresets.add;
+    document.getElementById('catViewOver').textContent = restoreAnalysis.categories.viewPresets.overwrite;
+    document.getElementById('catViewSkip').textContent = restoreAnalysis.categories.viewPresets.skip;
 
     const warningEl = document.getElementById('restoreDuplicateWarning');
     if (restoreAnalysis.hasDuplicate) {
@@ -5264,24 +5640,7 @@ function renderRestorePreview() {
         warningEl.style.display = 'none';
     }
 
-    tbody.innerHTML = restoreAnalysis.items.map(function(item, index) {
-        const rowClass = 'row-' + item.action;
-        const statusMap = {
-            'add': { text: '新增', class: 'status-add' },
-            'overwrite': { text: '覆盖', class: 'status-overwrite' },
-            'skip': { text: '跳过', class: 'status-skip' }
-        };
-        const status = statusMap[item.action];
-
-        return '<tr class="' + rowClass + '">' +
-            '<td>' + (index + 1) + '</td>' +
-            '<td>' + escapeHtml(item.data.title || '-') + '</td>' +
-            '<td>' + escapeHtml(item.data.docNumber || '-') + '</td>' +
-            '<td>' + escapeHtml(item.data.fromUnit || '-') + '</td>' +
-            '<td>' + escapeHtml(item.data.department || '-') + '</td>' +
-            '<td><span class="restore-row-status ' + status.class + '">' + status.text + '</span></td>' +
-            '</tr>';
-    }).join('');
+    renderRestorePreviewTable();
 
     previewSection.style.display = 'block';
 
@@ -5304,11 +5663,92 @@ function renderRestorePreview() {
 }
 
 function confirmRestore() {
-    if (!restoreAnalysis) return;
+    if (!restoreAnalysis || !restorePackage) return;
 
-    const allDocs = loadAllDocuments();
     const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
+    const typeDocs = document.getElementById('restoreTypeDocuments').checked;
+    const typeTpls = document.getElementById('restoreTypeTemplates').checked;
+    const typeAudit = document.getElementById('restoreTypeAuditLogs').checked;
+    const typeFlow = document.getElementById('restoreTypeFlowRules').checked;
+    const typeView = document.getElementById('restoreTypeViewPresets').checked;
 
+    let docAdded = 0, docOverwritten = 0, docSkipped = 0;
+    let tplAdded = 0, tplOverwritten = 0, tplSkipped = 0;
+    let auditAdded = 0, auditOverwritten = 0, auditSkipped = 0;
+    let flowAdded = 0, flowOverwritten = 0, flowSkipped = 0;
+    let viewAdded = 0, viewOverwritten = 0, viewSkipped = 0;
+    let restoredFromTrash = 0;
+
+    if (typeDocs) {
+        const result = restoreDocuments(overwrite);
+        docAdded = result.added;
+        docOverwritten = result.overwritten;
+        docSkipped = result.skipped;
+        restoredFromTrash = result.restoredFromTrash;
+    }
+
+    if (typeTpls) {
+        const result = restoreTemplates(overwrite);
+        tplAdded = result.added;
+        tplOverwritten = result.overwritten;
+        tplSkipped = result.skipped;
+    }
+
+    if (typeAudit) {
+        const result = restoreAuditLogs(overwrite);
+        auditAdded = result.added;
+        auditOverwritten = result.overwritten;
+        auditSkipped = result.skipped;
+    }
+
+    if (typeFlow && restorePackage.data.flowRules) {
+        const result = restoreFlowRules(overwrite);
+        flowAdded = result.added;
+        flowOverwritten = result.overwritten;
+        flowSkipped = result.skipped;
+    }
+
+    if (typeView) {
+        const result = restoreViewPresets(overwrite);
+        viewAdded = result.added;
+        viewOverwritten = result.overwritten;
+        viewSkipped = result.skipped;
+    }
+
+    const totalAdded = docAdded + tplAdded + auditAdded + flowAdded + viewAdded;
+    const totalOver = docOverwritten + tplOverwritten + auditOverwritten + flowOver + viewOverwritten;
+    const totalSkip = docSkipped + tplSkipped + auditSkipped + flowSkipped + viewSkipped;
+
+    if (docAdded + docOverwritten > 0) {
+        const docs = loadAllDocuments();
+        const sampleDoc = docs[0];
+        addAuditLog(AUDIT_ACTION.RESTORE, sampleDoc, null, {
+            documents: { add: docAdded, overwrite: docOverwritten, skip: docSkipped, restoredFromTrash: restoredFromTrash },
+            templates: { add: tplAdded, overwrite: tplOverwritten, skip: tplSkipped },
+            auditLogs: { add: auditAdded, overwrite: auditOverwritten, skip: auditSkipped },
+            flowRules: { add: flowAdded, overwrite: flowOverwritten, skip: flowSkipped },
+            viewPresets: { add: viewAdded, overwrite: viewOverwritten, skip: viewSkipped }
+        });
+    }
+
+    let msg = '';
+    const parts = [];
+    if (docAdded + docOverwritten > 0) parts.push('收文 ' + docAdded + '新增/' + docOverwritten + '覆盖');
+    if (tplAdded + tplOverwritten > 0) parts.push('模板 ' + tplAdded + '新增/' + tplOverwritten + '覆盖');
+    if (auditAdded + auditOverwritten > 0) parts.push('审计日志 ' + auditAdded + '新增/' + auditOverwritten + '覆盖');
+    if (flowAdded + flowOverwritten > 0) parts.push('流程规则 ' + (flowAdded + flowOverwritten) + '项');
+    if (viewAdded + viewOverwritten > 0) parts.push('保存视图 ' + viewAdded + '新增/' + viewOverwritten + '覆盖');
+    msg = '恢复完成：' + parts.join('，');
+    if (totalSkip > 0) msg += '，跳过 ' + totalSkip + ' 条';
+
+    showToast(msg, 'success');
+    closeRestoreModal();
+
+    refreshAllViews();
+}
+
+function restoreDocuments(overwrite) {
+    const allDocs = loadAllDocuments();
     const existingById = {};
     const existingByDocNumber = {};
     const docIndexById = {};
@@ -5326,36 +5766,23 @@ function confirmRestore() {
     let overwriteCount = 0;
     let skipCount = 0;
     let restoredFromTrash = 0;
-
     const finalDocs = allDocs.slice();
+    const seenIds = {};
+    const seenDocNumbers = {};
 
-    const seenIdsInBackup = {};
-    const seenDocNumbersInBackup = {};
+    restorePackage.data.documents.forEach(function(item) {
+        let isInternalDup = false;
+        if (item.id && seenIds[item.id]) isInternalDup = true;
+        if (!isInternalDup && item.docNumber && seenDocNumbers[item.docNumber]) isInternalDup = true;
+        if (item.id) seenIds[item.id] = true;
+        if (item.docNumber) seenDocNumbers[item.docNumber] = true;
 
-    restoreData.forEach(function(item) {
-        let isInternalDuplicate = false;
-
-        if (item.id && seenIdsInBackup[item.id]) {
-            isInternalDuplicate = true;
-        }
-        if (!isInternalDuplicate && item.docNumber && seenDocNumbersInBackup[item.docNumber]) {
-            isInternalDuplicate = true;
-        }
-
-        if (item.id) {
-            seenIdsInBackup[item.id] = true;
-        }
-        if (item.docNumber) {
-            seenDocNumbersInBackup[item.docNumber] = true;
-        }
-
-        if (isInternalDuplicate) {
+        if (isInternalDup) {
             skipCount++;
             return;
         }
 
         let matchDoc = null;
-
         if (item.id && existingById[item.id]) {
             matchDoc = existingById[item.id];
         } else if (item.docNumber && existingByDocNumber[item.docNumber]) {
@@ -5366,9 +5793,9 @@ function confirmRestore() {
             let deadline = item.deadline;
             if (!deadline && item.receiveDate && item.urgency) {
                 const days = getDeadlineDaysByUrgency(item.urgency);
-                const deadlineDate = new Date(item.receiveDate);
-                deadlineDate.setDate(deadlineDate.getDate() + days);
-                deadline = formatDateInput(deadlineDate);
+                const d = new Date(item.receiveDate);
+                d.setDate(d.getDate() + days);
+                deadline = formatDateInput(d);
             }
             let flowStatus = item.flowStatus;
             if (!flowStatus) {
@@ -5405,21 +5832,21 @@ function confirmRestore() {
             finalDocs.push(newDoc);
             addCount++;
         } else if (overwrite) {
-            const index = docIndexById[matchDoc.id];
-            if (index !== undefined && index !== -1) {
+            const idx = docIndexById[matchDoc.id];
+            if (idx !== undefined && idx !== -1) {
                 const wasDeleted = matchDoc.isDeleted;
                 let deadline = item.deadline;
                 if (!deadline && item.receiveDate && item.urgency) {
                     const days = getDeadlineDaysByUrgency(item.urgency);
-                    const deadlineDate = new Date(item.receiveDate);
-                    deadlineDate.setDate(deadlineDate.getDate() + days);
-                    deadline = formatDateInput(deadlineDate);
+                    const d = new Date(item.receiveDate);
+                    d.setDate(d.getDate() + days);
+                    deadline = formatDateInput(d);
                 }
                 let flowStatus = item.flowStatus;
                 if (!flowStatus) {
                     flowStatus = item.completed ? FLOW_STATUS.DONE : FLOW_STATUS.PENDING_REVIEW;
                 }
-                finalDocs[index] = {
+                finalDocs[idx] = {
                     ...matchDoc,
                     ...item,
                     id: matchDoc.id,
@@ -5436,9 +5863,7 @@ function confirmRestore() {
                     deletedAt: null
                 };
                 overwriteCount++;
-                if (wasDeleted) {
-                    restoredFromTrash++;
-                }
+                if (wasDeleted) restoredFromTrash++;
             }
         } else {
             skipCount++;
@@ -5446,36 +5871,160 @@ function confirmRestore() {
     });
 
     saveDocuments(finalDocs);
+    return { added: addCount, overwritten: overwriteCount, skipped: skipCount, restoredFromTrash: restoredFromTrash };
+}
 
-    const totalAffected = addCount + overwriteCount;
-    if (totalAffected > 0) {
-        const sampleDoc = finalDocs.find(function(d) {
-            return restoreData.some(function(r) { return r.docNumber === d.docNumber; });
-        }) || finalDocs[0];
-        addAuditLog(AUDIT_ACTION.RESTORE, sampleDoc, null, {
-            addCount: addCount,
-            overwriteCount: overwriteCount,
-            skipCount: skipCount,
-            restoredFromTrash: restoredFromTrash
-        });
-    }
+function restoreTemplates(overwrite) {
+    const existing = getTemplates();
+    const existingById = {};
+    const existingByName = {};
+    const indexById = {};
+    existing.forEach(function(t, i) {
+        if (t.id) { existingById[t.id] = t; indexById[t.id] = i; }
+        if (t.name) existingByName[t.name] = t;
+    });
 
-    let msg = '';
-    if (addCount > 0) {
-        msg += '新增 ' + addCount + ' 条';
-    }
-    if (overwriteCount > 0) {
-        msg += (msg ? '，' : '') + '覆盖 ' + overwriteCount + ' 条';
-    }
-    if (skipCount > 0) {
-        msg += (msg ? '，' : '') + '跳过 ' + skipCount + ' 条';
-    }
-    msg += '收文数据';
+    let addCount = 0, overwriteCount = 0, skipCount = 0;
+    const finalTpls = existing.slice();
+    const seenIds = {}, seenNames = {};
 
-    showToast(msg, 'success');
-    closeRestoreModal();
+    restorePackage.data.templates.forEach(function(item) {
+        let isDup = false;
+        if (item.id && seenIds[item.id]) isDup = true;
+        if (!isDup && item.name && seenNames[item.name]) isDup = true;
+        if (item.id) seenIds[item.id] = true;
+        if (item.name) seenNames[item.name] = true;
+        if (isDup) { skipCount++; return; }
+
+        let match = null;
+        if (item.id && existingById[item.id]) match = existingById[item.id];
+        else if (item.name && existingByName[item.name]) match = existingByName[item.name];
+
+        if (!match) {
+            finalTpls.unshift({ ...item, id: item.id || generateId() });
+            addCount++;
+        } else if (overwrite) {
+            const idx = indexById[match.id];
+            if (idx !== undefined) {
+                finalTpls[idx] = { ...match, ...item, id: match.id };
+                overwriteCount++;
+            }
+        } else {
+            skipCount++;
+        }
+    });
+
+    saveTemplates(finalTpls);
+    return { added: addCount, overwritten: overwriteCount, skipped: skipCount };
+}
+
+function restoreAuditLogs(overwrite) {
+    const existing = getAuditLogs();
+    const existingById = {};
+    existing.forEach(function(log) {
+        if (log.id) existingById[log.id] = true;
+    });
+
+    let addCount = 0, overwriteCount = 0, skipCount = 0;
+    const finalLogs = existing.slice();
+    const seenIds = {};
+
+    restorePackage.data.auditLogs.forEach(function(item) {
+        if (item.id && seenIds[item.id]) { skipCount++; return; }
+        if (item.id) seenIds[item.id] = true;
+
+        if (!item.id || !existingById[item.id]) {
+            finalLogs.push({ ...item, id: item.id || generateId() });
+            addCount++;
+        } else if (overwrite) {
+            overwriteCount++;
+        } else {
+            skipCount++;
+        }
+    });
+
+    finalLogs.sort(function(a, b) {
+        return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+    if (finalLogs.length > 1000) finalLogs.length = 1000;
+
+    saveAuditLogs(finalLogs);
+    return { added: addCount, overwritten: overwriteCount, skipped: skipCount };
+}
+
+function restoreFlowRules(overwrite) {
+    const existing = getFlowRules();
+    if (!existing.updatedAt) {
+        saveFlowRules(restorePackage.data.flowRules);
+        return { added: 1, overwritten: 0, skipped: 0 };
+    } else if (overwrite) {
+        saveFlowRules(restorePackage.data.flowRules);
+        return { added: 0, overwritten: 1, skipped: 0 };
+    }
+    return { added: 0, overwritten: 0, skipped: 1 };
+}
+
+function restoreViewPresets(overwrite) {
+    const existing = getViewPresets();
+    const existingById = {};
+    const existingByName = {};
+    const indexById = {};
+    existing.forEach(function(v, i) {
+        if (v.id) { existingById[v.id] = v; indexById[v.id] = i; }
+        if (v.name) existingByName[v.name] = v;
+    });
+
+    let addCount = 0, overwriteCount = 0, skipCount = 0;
+    const finalViews = existing.slice();
+    const seenIds = {}, seenNames = {};
+
+    restorePackage.data.viewPresets.forEach(function(item) {
+        let isDup = false;
+        if (item.id && seenIds[item.id]) isDup = true;
+        if (!isDup && item.name && seenNames[item.name]) isDup = true;
+        if (item.id) seenIds[item.id] = true;
+        if (item.name) seenNames[item.name] = true;
+        if (isDup) { skipCount++; return; }
+
+        let match = null;
+        if (item.id && existingById[item.id]) match = existingById[item.id];
+        else if (item.name && existingByName[item.name]) match = existingByName[item.name];
+
+        if (!match) {
+            finalViews.push({ ...item, id: item.id || generateId() });
+            addCount++;
+        } else if (overwrite) {
+            const idx = indexById[match.id];
+            if (idx !== undefined) {
+                finalViews[idx] = { ...match, ...item, id: match.id, updatedAt: new Date().toISOString() };
+                overwriteCount++;
+            }
+        } else {
+            skipCount++;
+        }
+    });
+
+    saveViewPresets(finalViews);
+    return { added: addCount, overwritten: overwriteCount, skipped: skipCount };
+}
+
+function refreshAllViews() {
     updateStats();
     renderDocumentList();
+    renderTemplateSelect();
+    renderAuditLogList();
+    if (typeof renderDepartmentBoard === 'function') {
+        renderDepartmentBoard();
+    }
+    if (typeof renderReminderCenter === 'function') {
+        renderReminderCenter();
+    }
+    if (typeof renderRecycleBinList === 'function') {
+        renderRecycleBinList();
+    }
+    if (typeof updateBatchToolbar === 'function') {
+        updateBatchToolbar();
+    }
 }
 
 function setupRestoreFileDragDrop() {
