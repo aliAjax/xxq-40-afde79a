@@ -134,6 +134,17 @@
                 </div>
                 <span class="filter-arrow" id="filterArrow">▼</span>
             </div>
+
+            <div class="view-preset-selector" id="viewPresetSelector">
+                <button class="view-preset-select-btn" onclick="event.stopPropagation(); toggleViewPresetMenu()">
+                    <span class="view-preset-select-icon">⭐</span>
+                    <span class="view-preset-select-text" id="currentViewPresetName">常用视图</span>
+                    <span class="view-preset-select-arrow">▼</span>
+                </button>
+                <div class="view-preset-menu" id="viewPresetMenu">
+                </div>
+            </div>
+
             <div class="filter-content" id="filterContent">
                 <div class="filter-row">
                     <div class="filter-item">
@@ -853,6 +864,37 @@
                 <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
                     <button type="button" class="btn btn-default" onclick="closeSaveTemplateModal()">取消</button>
                     <button type="submit" class="btn btn-primary">保存模板</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="saveViewPresetModal">
+        <div class="modal-overlay" onclick="closeSaveViewPresetModal()"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2 id="saveViewPresetTitle">保存为常用视图</h2>
+                <button class="modal-close" onclick="closeSaveViewPresetModal()">✕</button>
+            </div>
+            <form id="saveViewPresetForm" class="modal-body" onsubmit="saveViewPresetHandler(event)">
+                <div class="form-group">
+                    <label class="form-label" for="saveViewPresetName">视图名称 <span class="required">*</span></label>
+                    <input type="text" id="saveViewPresetName" class="form-input" placeholder="请输入视图名称，便于快速识别" required>
+                </div>
+                <div class="view-preset-preview">
+                    <div class="view-preset-preview-title">当前视图包含：</div>
+                    <div class="view-preset-preview-summary" id="saveViewPresetSummary">-</div>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="saveViewPresetAsDefault">
+                        <span class="custom-checkbox"></span>
+                        <span>设为默认视图</span>
+                    </label>
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeSaveViewPresetModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存视图</button>
                 </div>
             </form>
         </div>

@@ -2,6 +2,8 @@ const STORAGE_KEY = 'document_registry_data';
 const TEMPLATE_STORAGE_KEY = 'document_templates';
 const AUDIT_LOG_STORAGE_KEY = 'document_audit_logs';
 const FLOW_RULE_STORAGE_KEY = 'document_flow_rules';
+const VIEW_PRESETS_STORAGE_KEY = 'document_view_presets';
+const ACTIVE_VIEW_STORAGE_KEY = 'document_active_view';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
 const URGENCY_LIST = ['普通', '加急', '特急'];
 
@@ -101,6 +103,9 @@ let selectedIds = [];
 let currentBatchAction = null;
 let recycleSelectedIds = [];
 let auditLogKeyword = '';
+let currentViewPresetId = null;
+let viewPresetMenuOpen = false;
+let viewPresetManageMode = false;
 
 function migrateDocument(doc) {
     const migrated = { ...doc };
@@ -315,6 +320,206 @@ function saveFlowRules(rules) {
     };
     localStorage.setItem(FLOW_RULE_STORAGE_KEY, JSON.stringify(rulesWithTime));
     return rulesWithTime;
+}
+
+function getViewPresets() {
+    const data = localStorage.getItem(VIEW_PRESETS_STORAGE_KEY);
+    if (!data) return [];
+    try {
+        const presets = JSON.parse(data);
+        if (!Array.isArray(presets)) return [];
+        return presets.map(function(p) {
+            return {
+                id: p.id || '',
+                name: p.name || '',
+                filter: p.filter || {
+                    department: '',
+                    urgency: '',
+                    receiveDateStart: '',
+                    receiveDateEnd: '',
+                    deadlineStart: '',
+                    deadlineEnd: ''
+                },
+                keyword: p.keyword || '',
+                tab: p.tab || 'all',
+                viewType: p.viewType || 'list',
+                isDefault: p.isDefault || false,
+                createdAt: p.createdAt || new Date().toISOString(),
+                updatedAt: p.updatedAt || new Date().toISOString()
+            };
+        });
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveViewPresets(presets) {
+    localStorage.setItem(VIEW_PRESETS_STORAGE_KEY, JSON.stringify(presets));
+}
+
+function getDefaultViewPreset() {
+    const presets = getViewPresets();
+    return presets.find(function(p) { return p.isDefault; }) || null;
+}
+
+function getActiveViewPresetId() {
+    return localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY) || null;
+}
+
+function saveActiveViewPresetId(id) {
+    if (id) {
+        localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, id);
+    } else {
+        localStorage.removeItem(ACTIVE_VIEW_STORAGE_KEY);
+    }
+}
+
+function createViewPreset(name, filter, keyword, tab, viewType) {
+    const presets = getViewPresets();
+    const newPreset = {
+        id: generateId(),
+        name: name,
+        filter: { ...filter },
+        keyword: keyword || '',
+        tab: tab || 'all',
+        viewType: viewType || 'list',
+        isDefault: presets.length === 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
+    presets.push(newPreset);
+    saveViewPresets(presets);
+    return newPreset;
+}
+
+function updateViewPreset(id, updates) {
+    const presets = getViewPresets();
+    const index = presets.findIndex(function(p) { return p.id === id; });
+    if (index === -1) return null;
+    presets[index] = {
+        ...presets[index],
+        ...updates,
+        updatedAt: new Date().toISOString()
+    };
+    saveViewPresets(presets);
+    return presets[index];
+}
+
+function deleteViewPreset(id) {
+    const presets = getViewPresets();
+    const filtered = presets.filter(function(p) { return p.id !== id; });
+    const deleted = presets.find(function(p) { return p.id === id; });
+    if (deleted && deleted.isDefault && filtered.length > 0) {
+        filtered[0].isDefault = true;
+    }
+    saveViewPresets(filtered);
+    if (currentViewPresetId === id) {
+        currentViewPresetId = null;
+        saveActiveViewPresetId(null);
+    }
+    return true;
+}
+
+function setDefaultViewPreset(id) {
+    const presets = getViewPresets();
+    presets.forEach(function(p) {
+        p.isDefault = p.id === id;
+    });
+    saveViewPresets(presets);
+}
+
+function renameViewPreset(id, newName) {
+    return updateViewPreset(id, { name: newName });
+}
+
+function applyViewPreset(id) {
+    const presets = getViewPresets();
+    const preset = presets.find(function(p) { return p.id === id; });
+    if (!preset) return false;
+
+    advancedFilter = { ...preset.filter };
+    searchKeyword = preset.keyword || '';
+    currentTab = preset.tab || 'all';
+    currentView = preset.viewType || 'list';
+
+    const filterDeptEl = document.getElementById('filterDepartment');
+    if (filterDeptEl) filterDeptEl.value = advancedFilter.department || '';
+    const filterUrgencyEl = document.getElementById('filterUrgency');
+    if (filterUrgencyEl) filterUrgencyEl.value = advancedFilter.urgency || '';
+    const filterReceiveStartEl = document.getElementById('filterReceiveDateStart');
+    if (filterReceiveStartEl) filterReceiveStartEl.value = advancedFilter.receiveDateStart || '';
+    const filterReceiveEndEl = document.getElementById('filterReceiveDateEnd');
+    if (filterReceiveEndEl) filterReceiveEndEl.value = advancedFilter.receiveDateEnd || '';
+    const filterDeadlineStartEl = document.getElementById('filterDeadlineStart');
+    if (filterDeadlineStartEl) filterDeadlineStartEl.value = advancedFilter.deadlineStart || '';
+    const filterDeadlineEndEl = document.getElementById('filterDeadlineEnd');
+    if (filterDeadlineEndEl) filterDeadlineEndEl.value = advancedFilter.deadlineEnd || '';
+
+    const searchInputEl = document.getElementById('searchInput');
+    if (searchInputEl) searchInputEl.value = searchKeyword;
+
+    currentViewPresetId = id;
+    saveActiveViewPresetId(id);
+
+    selectedIds = [];
+    updateFilterActiveBadge();
+
+    switchingFromPreset = true;
+    switchView(currentView);
+    if (currentView === 'list') {
+        const tabEls = document.querySelectorAll('.tab');
+        tabEls.forEach(function(t) { t.classList.remove('active'); });
+        const activeTab = document.querySelector(`.tab[data-tab="${currentTab}"]`);
+        if (activeTab) activeTab.classList.add('active');
+        renderDocumentList();
+    }
+    switchingFromPreset = false;
+
+    renderViewPresetSelector();
+
+    return true;
+}
+
+function isCurrentViewMatchingPreset(preset) {
+    if (!preset) return false;
+    if (preset.viewType !== currentView) return false;
+    if (preset.viewType === 'list' && preset.tab !== currentTab) return false;
+    if ((preset.keyword || '') !== searchKeyword) return false;
+    const f = preset.filter || {};
+    return f.department === advancedFilter.department &&
+        f.urgency === advancedFilter.urgency &&
+        f.receiveDateStart === advancedFilter.receiveDateStart &&
+        f.receiveDateEnd === advancedFilter.receiveDateEnd &&
+        f.deadlineStart === advancedFilter.deadlineStart &&
+        f.deadlineEnd === advancedFilter.deadlineEnd;
+}
+
+function getViewPresetSummary(preset) {
+    if (!preset) return '';
+    const parts = [];
+    const f = preset.filter || {};
+    if (f.department) parts.push('科室：' + f.department);
+    if (f.urgency) parts.push('紧急：' + f.urgency);
+    if (f.receiveDateStart || f.receiveDateEnd) {
+        parts.push('收文：' + (f.receiveDateStart || '不限') + ' ~ ' + (f.receiveDateEnd || '不限'));
+    }
+    if (f.deadlineStart || f.deadlineEnd) {
+        parts.push('期限：' + (f.deadlineStart || '不限') + ' ~ ' + (f.deadlineEnd || '不限'));
+    }
+    if (preset.keyword) parts.push('关键词：' + preset.keyword);
+    if (preset.viewType === 'list') {
+        const tabNames = {
+            'pending_review': '待拟办',
+            'processing': '办理中',
+            'pending_feedback': '待反馈',
+            'urgent': '即将到期',
+            'done': '已办结',
+            'all': '全部'
+        };
+        parts.push('标签：' + (tabNames[preset.tab] || preset.tab));
+    }
+    parts.push(preset.viewType === 'board' ? '科室看板' : '列表视图');
+    return parts.join(' | ');
 }
 
 function getDeadlineDaysByUrgency(urgency) {
@@ -1199,6 +1404,7 @@ function updateStats() {
 
 function getDepartmentStats() {
     const documents = getDocuments();
+    const filteredDocs = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
     const stats = {};
 
     DEPARTMENT_LIST.forEach(dept => {
@@ -1213,7 +1419,7 @@ function getDepartmentStats() {
         };
     });
 
-    documents.forEach(doc => {
+    filteredDocs.forEach(doc => {
         const dept = doc.undertakingDepartment || doc.department || '';
         if (!dept) return;
 
@@ -1320,6 +1526,8 @@ function renderDepartmentBoard() {
     }).join('');
 }
 
+let switchingFromPreset = false;
+
 function switchView(view) {
     currentView = view;
 
@@ -1328,6 +1536,10 @@ function switchView(view) {
     });
     const viewTab = document.querySelector(`.view-tab[data-view="${view}"]`);
     if (viewTab) viewTab.classList.add('active');
+
+    if (!switchingFromPreset && (view === 'list' || view === 'board') && currentViewPresetId) {
+        detachFromViewPreset();
+    }
 
     const listTabs = document.getElementById('listTabs');
     const batchToolbar = document.getElementById('batchToolbar');
@@ -1394,6 +1606,7 @@ function switchView(view) {
 function viewDepartmentDocuments(dept) {
     advancedFilter.department = dept;
     document.getElementById('filterDepartment').value = dept;
+    detachFromViewPreset();
     updateFilterActiveBadge();
     switchView('list');
     switchTab('all');
@@ -1931,13 +2144,21 @@ function switchTab(tab) {
         t.classList.remove('active');
     });
     document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
+    if (currentViewPresetId) {
+        detachFromViewPreset();
+    }
     renderDocumentList();
 }
 
 function searchDocuments() {
     searchKeyword = document.getElementById('searchInput').value.trim();
     selectedIds = [];
-    renderDocumentList();
+    detachFromViewPreset();
+    if (currentView === 'list') {
+        renderDocumentList();
+    } else if (currentView === 'board') {
+        renderDepartmentBoard();
+    }
 }
 
 function toggleAdvancedFilter() {
@@ -1958,8 +2179,13 @@ function applyAdvancedFilter() {
     advancedFilter.deadlineStart = document.getElementById('filterDeadlineStart').value;
     advancedFilter.deadlineEnd = document.getElementById('filterDeadlineEnd').value;
     selectedIds = [];
+    detachFromViewPreset();
     updateFilterActiveBadge();
-    renderDocumentList();
+    if (currentView === 'list') {
+        renderDocumentList();
+    } else if (currentView === 'board') {
+        renderDepartmentBoard();
+    }
 }
 
 function clearAdvancedFilter() {
@@ -1978,8 +2204,13 @@ function clearAdvancedFilter() {
     document.getElementById('filterDeadlineStart').value = '';
     document.getElementById('filterDeadlineEnd').value = '';
     selectedIds = [];
+    detachFromViewPreset();
     updateFilterActiveBadge();
-    renderDocumentList();
+    if (currentView === 'list') {
+        renderDocumentList();
+    } else if (currentView === 'board') {
+        renderDepartmentBoard();
+    }
 }
 
 function updateFilterActiveBadge() {
@@ -1989,6 +2220,250 @@ function updateFilterActiveBadge() {
     } else {
         badge.style.display = 'none';
     }
+}
+
+function detachFromViewPreset() {
+    currentViewPresetId = null;
+    saveActiveViewPresetId(null);
+    renderViewPresetSelector();
+}
+
+function renderViewPresetSelector() {
+    const presets = getViewPresets();
+    const selectorEl = document.getElementById('viewPresetSelector');
+    const menuEl = document.getElementById('viewPresetMenu');
+    if (!selectorEl || !menuEl) return;
+
+    const currentLabelEl = document.getElementById('currentViewPresetName');
+    if (currentLabelEl) {
+        if (currentViewPresetId) {
+            const current = presets.find(function(p) { return p.id === currentViewPresetId; });
+            currentLabelEl.textContent = current ? current.name : '选择视图';
+        } else {
+            currentLabelEl.textContent = '常用视图';
+        }
+    }
+
+    let menuHtml = '';
+
+    menuHtml += '<div class="view-preset-menu-header">';
+    menuHtml += '<div class="view-preset-menu-title">常用视图</div>';
+    menuHtml += '<button class="view-preset-manage-btn" onclick="toggleViewPresetManageMode()" title="管理视图">⚙️</button>';
+    menuHtml += '</div>';
+
+    if (presets.length === 0) {
+        menuHtml += '<div class="view-preset-empty">';
+        menuHtml += '<div class="view-preset-empty-icon">💾</div>';
+        menuHtml += '<div class="view-preset-empty-text">暂无保存的视图</div>';
+        menuHtml += '<div class="view-preset-empty-hint">调整筛选条件后保存为常用视图</div>';
+        menuHtml += '</div>';
+    } else {
+        menuHtml += '<div class="view-preset-list">';
+        presets.forEach(function(preset) {
+            const isActive = preset.id === currentViewPresetId;
+            const isMatching = !currentViewPresetId && isCurrentViewMatchingPreset(preset);
+            menuHtml += `
+                <div class="view-preset-item ${isActive ? 'active' : ''} ${isMatching ? 'matching' : ''}" 
+                     onclick="${viewPresetManageMode ? '' : `selectViewPreset('${preset.id}')`}">
+                    <div class="view-preset-item-main">
+                        <div class="view-preset-item-icon">${preset.viewType === 'board' ? '📊' : '📋'}</div>
+                        <div class="view-preset-item-info">
+                            <div class="view-preset-item-name">
+                                ${escapeHtml(preset.name)}
+                                ${preset.isDefault ? '<span class="view-preset-default-badge">默认</span>' : ''}
+                            </div>
+                            <div class="view-preset-item-summary">${escapeHtml(getViewPresetSummary(preset))}</div>
+                        </div>
+                    </div>
+                    ${viewPresetManageMode ? `
+                        <div class="view-preset-item-actions">
+                            <button class="view-preset-action-btn" onclick="event.stopPropagation(); renameViewPresetPrompt('${preset.id}')" title="重命名">✏️</button>
+                            <button class="view-preset-action-btn ${preset.isDefault ? 'disabled' : ''}" 
+                                    onclick="event.stopPropagation(); ${preset.isDefault ? '' : `setDefaultViewPresetHandler('${preset.id}')`}" 
+                                    title="${preset.isDefault ? '已是默认' : '设为默认'}">${preset.isDefault ? '⭐' : '☆'}</button>
+                            <button class="view-preset-action-btn delete" onclick="event.stopPropagation(); deleteViewPresetHandler('${preset.id}')" title="删除">🗑</button>
+                        </div>
+                    ` : `
+                        <div class="view-preset-item-arrow">${isActive ? '✓' : '›'}</div>
+                    `}
+                </div>
+            `;
+        });
+        menuHtml += '</div>';
+    }
+
+    menuHtml += '<div class="view-preset-menu-footer">';
+    menuHtml += '<button class="btn btn-primary btn-sm view-preset-save-btn" onclick="openSaveViewPresetModal()">';
+    menuHtml += '<span class="btn-icon">💾</span> 保存当前为视图';
+    menuHtml += '</button>';
+    menuHtml += '</div>';
+
+    menuEl.innerHTML = menuHtml;
+}
+
+function toggleViewPresetMenu() {
+    viewPresetMenuOpen = !viewPresetMenuOpen;
+    viewPresetManageMode = false;
+    const menuEl = document.getElementById('viewPresetMenu');
+    if (menuEl) {
+        if (viewPresetMenuOpen) {
+            menuEl.classList.add('show');
+            renderViewPresetSelector();
+        } else {
+            menuEl.classList.remove('show');
+        }
+    }
+}
+
+function closeViewPresetMenu() {
+    viewPresetMenuOpen = false;
+    viewPresetManageMode = false;
+    const menuEl = document.getElementById('viewPresetMenu');
+    if (menuEl) {
+        menuEl.classList.remove('show');
+    }
+}
+
+function toggleViewPresetManageMode() {
+    viewPresetManageMode = !viewPresetManageMode;
+    renderViewPresetSelector();
+}
+
+function selectViewPreset(id) {
+    const success = applyViewPreset(id);
+    if (success) {
+        closeViewPresetMenu();
+        showToast('已切换视图', 'success');
+    }
+    renderViewPresetSelector();
+}
+
+function setDefaultViewPresetHandler(id) {
+    setDefaultViewPreset(id);
+    renderViewPresetSelector();
+    showToast('已设为默认视图', 'success');
+}
+
+function deleteViewPresetHandler(id) {
+    const presets = getViewPresets();
+    const preset = presets.find(function(p) { return p.id === id; });
+    if (!preset) return;
+
+    if (!confirm('确定要删除视图「' + preset.name + '」吗？此操作不可恢复。')) {
+        return;
+    }
+
+    deleteViewPreset(id);
+    renderViewPresetSelector();
+    showToast('视图已删除', 'success');
+}
+
+function renameViewPresetPrompt(id) {
+    const presets = getViewPresets();
+    const preset = presets.find(function(p) { return p.id === id; });
+    if (!preset) return;
+
+    const newName = prompt('请输入新的视图名称：', preset.name);
+    if (newName === null) return;
+
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+        showToast('视图名称不能为空', 'error');
+        return;
+    }
+
+    const nameDup = presets.find(function(p) { return p.name === trimmedName && p.id !== id; });
+    if (nameDup) {
+        showToast('已存在同名视图', 'error');
+        return;
+    }
+
+    renameViewPreset(id, trimmedName);
+    renderViewPresetSelector();
+    showToast('视图已重命名', 'success');
+}
+
+let saveViewPresetMode = 'create';
+let editingViewPresetId = null;
+
+function openSaveViewPresetModal() {
+    closeViewPresetMenu();
+    saveViewPresetMode = 'create';
+    editingViewPresetId = null;
+
+    document.getElementById('saveViewPresetName').value = '';
+    document.getElementById('saveViewPresetTitle').textContent = '保存为常用视图';
+    document.getElementById('saveViewPresetSummary').textContent = getViewPresetSummary({
+        filter: advancedFilter,
+        keyword: searchKeyword,
+        tab: currentTab,
+        viewType: currentView
+    });
+
+    const saveAsDefaultEl = document.getElementById('saveViewPresetAsDefault');
+    if (saveAsDefaultEl) {
+        const presets = getViewPresets();
+        saveAsDefaultEl.checked = presets.length === 0;
+    }
+
+    document.getElementById('saveViewPresetModal').classList.add('show');
+    setTimeout(function() {
+        document.getElementById('saveViewPresetName').focus();
+    }, 100);
+}
+
+function closeSaveViewPresetModal() {
+    document.getElementById('saveViewPresetModal').classList.remove('show');
+    saveViewPresetMode = 'create';
+    editingViewPresetId = null;
+}
+
+function saveViewPresetHandler(e) {
+    if (e) e.preventDefault();
+
+    const name = document.getElementById('saveViewPresetName').value.trim();
+    if (!name) {
+        showToast('请输入视图名称', 'error');
+        return;
+    }
+
+    const presets = getViewPresets();
+    const nameDup = presets.find(function(p) {
+        return p.name === name && p.id !== editingViewPresetId;
+    });
+    if (nameDup) {
+        showToast('已存在同名视图', 'error');
+        return;
+    }
+
+    const setAsDefault = document.getElementById('saveViewPresetAsDefault').checked;
+
+    if (saveViewPresetMode === 'create') {
+        const newPreset = createViewPreset(name, advancedFilter, searchKeyword, currentTab, currentView);
+        if (setAsDefault) {
+            setDefaultViewPreset(newPreset.id);
+        }
+        currentViewPresetId = newPreset.id;
+        saveActiveViewPresetId(newPreset.id);
+        showToast('视图保存成功', 'success');
+    } else {
+        updateViewPreset(editingViewPresetId, {
+            name: name,
+            filter: { ...advancedFilter },
+            keyword: searchKeyword,
+            tab: currentTab,
+            viewType: currentView
+        });
+        if (setAsDefault) {
+            setDefaultViewPreset(editingViewPresetId);
+        }
+        currentViewPresetId = editingViewPresetId;
+        saveActiveViewPresetId(editingViewPresetId);
+        showToast('视图已更新', 'success');
+    }
+
+    closeSaveViewPresetModal();
+    renderViewPresetSelector();
 }
 
 function addFlowRecord(docId, action, opinion, handler, department, toStatus, coDepartments) {
@@ -4699,6 +5174,8 @@ function init() {
             closeAddRecordModal();
             if (typeof closeCompleteModal === 'function') closeCompleteModal();
             closeSaveTemplateModal();
+            closeSaveViewPresetModal();
+            closeViewPresetMenu();
             closeFlowModal();
             closeReminderNoteModal();
             closeExtendDeadlineModal();
@@ -4711,11 +5188,29 @@ function init() {
         if (exportDropdown && !exportDropdown.contains(e.target)) {
             closeExportMenu();
         }
+
+        const viewPresetSelector = document.getElementById('viewPresetSelector');
+        if (viewPresetSelector && !viewPresetSelector.contains(e.target)) {
+            closeViewPresetMenu();
+        }
     });
 
     setupFileDragDrop();
     setupRestoreFileDragDrop();
+
+    const activePresetId = getActiveViewPresetId();
+    if (activePresetId) {
+        const presets = getViewPresets();
+        const preset = presets.find(function(p) { return p.id === activePresetId; });
+        if (preset) {
+            applyViewPreset(activePresetId);
+        } else {
+            saveActiveViewPresetId(null);
+        }
+    }
+
     updateFilterActiveBadge();
+    renderViewPresetSelector();
     updateStats();
     renderReminderCenter();
     renderDocumentList();
