@@ -1125,6 +1125,72 @@
         </div>
     </div>
 
+    <div class="modal" id="supervisionModal">
+        <div class="modal-overlay" onclick="closeSupervisionModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">📢 发起督办</h3>
+                <button class="modal-close" onclick="closeSupervisionModal()">✕</button>
+            </div>
+            <form id="supervisionForm" class="modal-body" onsubmit="saveSupervision(event)">
+                <input type="hidden" id="supervisionDocId">
+                <div class="form-group">
+                    <label class="form-label" for="supervisionReason">督办原因 <span class="required">*</span></label>
+                    <textarea id="supervisionReason" class="form-input form-textarea" placeholder="请输入督办原因..." rows="3" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="supervisionSupervisor">督办人</label>
+                    <input type="text" id="supervisionSupervisor" class="form-input" placeholder="请输入督办人姓名（选填）">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="supervisionFeedbackDeadline">要求反馈时间 <span class="required">*</span></label>
+                    <input type="date" id="supervisionFeedbackDeadline" class="form-input" required>
+                </div>
+                <div class="form-hint">对逾期或即将到期的收文发起督办，督促承办科室尽快办理</div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeSupervisionModal()">取消</button>
+                    <button type="submit" class="btn btn-warning">确认督办</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="supervisionFeedbackModal">
+        <div class="modal-overlay" onclick="closeSupervisionFeedbackModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">📝 督办反馈</h3>
+                <button class="modal-close" onclick="closeSupervisionFeedbackModal()">✕</button>
+            </div>
+            <form id="supervisionFeedbackForm" class="modal-body" onsubmit="saveSupervisionFeedback(event)">
+                <input type="hidden" id="supervisionFeedbackDocId">
+                <input type="hidden" id="supervisionFeedbackRecordId">
+                <div class="supervision-info-box">
+                    <div class="supervision-info-item">
+                        <span class="supervision-info-label">督办原因：</span>
+                        <span class="supervision-info-value" id="supervisionFeedbackReason">-</span>
+                    </div>
+                    <div class="supervision-info-item">
+                        <span class="supervision-info-label">督办人：</span>
+                        <span class="supervision-info-value" id="supervisionFeedbackSupervisor">-</span>
+                    </div>
+                    <div class="supervision-info-item">
+                        <span class="supervision-info-label">要求反馈：</span>
+                        <span class="supervision-info-value" id="supervisionFeedbackDeadlineText">-</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="supervisionFeedbackResult">处理结果 <span class="required">*</span></label>
+                    <textarea id="supervisionFeedbackResult" class="form-input form-textarea" placeholder="请输入处理结果..." rows="5" required></textarea>
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeSupervisionFeedbackModal()">取消</button>
+                    <button type="submit" class="btn btn-success">确认反馈</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="modal" id="flowRuleModal">
         <div class="modal-overlay" onclick="closeFlowRuleModal()"></div>
         <div class="modal-content modal-large">

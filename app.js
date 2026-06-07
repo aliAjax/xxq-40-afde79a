@@ -28,7 +28,9 @@ const AUDIT_ACTION = {
     FLOW_PROGRESS: 'flow_progress',
     FLOW_FEEDBACK: 'flow_feedback',
     ADD_PROGRESS_RECORD: 'add_progress_record',
-    FLOW_RULE_CHANGE: 'flow_rule_change'
+    FLOW_RULE_CHANGE: 'flow_rule_change',
+    SUPERVISION_CREATE: 'supervision_create',
+    SUPERVISION_FEEDBACK: 'supervision_feedback'
 };
 
 const AUDIT_ACTION_TEXT = {
@@ -52,7 +54,9 @@ const AUDIT_ACTION_TEXT = {
     'flow_progress': '进展更新',
     'flow_feedback': '反馈',
     'add_progress_record': '追加进展',
-    'flow_rule_change': '流程规则变更'
+    'flow_rule_change': '流程规则变更',
+    'supervision_create': '发起督办',
+    'supervision_feedback': '督办反馈'
 };
 
 const FLOW_STATUS = {
@@ -86,6 +90,18 @@ const FLOW_ACTION_TEXT = {
     'feedback': '反馈',
     'complete': '办结'
 };
+
+const SUPERVISION_STATUS = {
+    PENDING: 'pending',
+    FEEDBACK: 'feedback'
+};
+
+const SUPERVISION_STATUS_TEXT = {
+    'pending': '待反馈',
+    'feedback': '已反馈'
+};
+
+let currentSupervisionDocId = null;
 
 let currentView = 'list';
 let currentTab = 'pending_review';
@@ -201,6 +217,10 @@ function migrateDocument(doc) {
         migrated.deletedAt = null;
     }
 
+    if (!migrated.supervisionRecords) {
+        migrated.supervisionRecords = [];
+    }
+
     return migrated;
 }
 
@@ -219,7 +239,8 @@ function loadAllDocuments() {
                (doc.flowStatus === FLOW_STATUS.DONE && !doc.completed) ||
                doc.reminderNote === undefined ||
                doc.extendedDeadline === undefined ||
-               doc.isDeleted === undefined;
+               doc.isDeleted === undefined ||
+               doc.supervisionRecords === undefined;
     });
     if (hasOldFormat) {
         saveDocuments(migratedDocs);
@@ -1240,6 +1261,69 @@ function renderProcessingRecords(doc) {
     return html;
 }
 
+function renderSupervisionRecords(doc) {
+    const records = doc.supervisionRecords || [];
+    if (records.length === 0) {
+        return '<div class="records-empty">暂无督办记录</div>';
+    }
+    const sortedRecords = records.slice().sort(function(a, b) {
+        return new Date(a.createdAt) - new Date(b.createdAt);
+    });
+    let html = '<div class="supervision-timeline">';
+    sortedRecords.forEach(function(record, index) {
+        const isLast = index === sortedRecords.length - 1;
+        const isPending = record.status === SUPERVISION_STATUS.PENDING;
+        const statusText = isPending ? '待反馈' : '已反馈';
+        const statusClass = isPending ? 'supervision-pending' : 'supervision-feedback';
+
+        html += `
+            <div class="supervision-timeline-item ${statusClass} ${isLast ? 'flow-last' : ''}">
+                <div class="flow-timeline-dot">
+                    <span class="flow-dot-icon">📢</span>
+                </div>
+                <div class="flow-timeline-line"></div>
+                <div class="flow-timeline-content">
+                    <div class="flow-timeline-header">
+                        <span class="flow-action-tag">${isPending ? '发起督办' : '督办反馈'}</span>
+                        <span class="supervision-status-tag">${statusText}</span>
+                        <span class="flow-time">${formatDateTime(record.createdAt)}</span>
+                    </div>
+                    <div class="supervision-detail">
+                        <div class="supervision-detail-row">
+                            <span class="supervision-detail-label">督办原因：</span>
+                            <span class="supervision-detail-value">${escapeHtml(record.reason)}</span>
+                        </div>
+                        ${record.supervisor ? `
+                        <div class="supervision-detail-row">
+                            <span class="supervision-detail-label">督办人：</span>
+                            <span class="supervision-detail-value">${escapeHtml(record.supervisor)}</span>
+                        </div>
+                        ` : ''}
+                        <div class="supervision-detail-row">
+                            <span class="supervision-detail-label">要求反馈：</span>
+                            <span class="supervision-detail-value">${formatDate(record.feedbackDeadline)}</span>
+                        </div>
+                    </div>
+                    ${!isPending ? `
+                        <div class="supervision-result">
+                            <div class="supervision-result-label">处理结果：</div>
+                            <div class="supervision-result-content">${escapeHtml(record.result)}</div>
+                            ${record.feedbackAt ? `<div class="supervision-feedback-time">反馈时间：${formatDateTime(record.feedbackAt)}</div>` : ''}
+                        </div>
+                    ` : ''}
+                    ${isPending ? `
+                        <div class="supervision-actions">
+                            <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); openSupervisionFeedbackModal('${doc.id}')">反馈</button>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    return html;
+}
+
 function getToday() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1777,6 +1861,11 @@ function renderDocumentList() {
             <span class="doc-tag deadline-${deadlineStatus}">${getDeadlineStatusText(deadlineStatus)}</span>
         ` : '';
 
+        const hasPendingSup = hasPendingSupervision(doc);
+        const supervisionTag = hasPendingSup ? `
+            <span class="doc-tag supervision-pending">督办中</span>
+        ` : '';
+
         const cardClass = deadlineStatus === 'overdue' ? 'deadline-overdue-card' :
                           deadlineStatus === 'urgent' ? 'deadline-urgent-card' : '';
 
@@ -1791,6 +1880,7 @@ function renderDocumentList() {
                         <span class="doc-tag urgency-${doc.urgency}">${doc.urgency}</span>
                         <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
                         ${deadlineTag}
+                        ${supervisionTag}
                     </div>
                 </div>
                 <div class="doc-info">
@@ -3387,6 +3477,9 @@ function viewDocument(id) {
     const coDeptsText = (doc.coDepartments && doc.coDepartments.length > 0) ?
         doc.coDepartments.join('、') : '无';
 
+    const hasPendingSup = hasPendingSupervision(doc);
+    const supervisionCount = (doc.supervisionRecords || []).length;
+
     const detailContent = document.getElementById('detailContent');
     detailContent.innerHTML = `
         <div class="detail-item">
@@ -3417,6 +3510,7 @@ function viewDocument(id) {
                 <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
                 ${!isDone && deadlineStatus !== 'normal' ?
                     `<span class="doc-tag deadline-${deadlineStatus}">${getDeadlineStatusText(deadlineStatus)}</span>` : ''}
+                ${hasPendingSup ? '<span class="doc-tag supervision-pending">督办中</span>' : ''}
             </span>
         </div>
         <div class="detail-item">
@@ -3477,6 +3571,13 @@ function viewDocument(id) {
             </div>
             ${renderFlowTimeline(doc)}
         </div>
+        <div class="detail-section">
+            <div class="detail-section-header">
+                <span class="detail-section-title">📢 督办记录</span>
+                <span class="detail-section-count">共 ${supervisionCount} 条</span>
+            </div>
+            ${renderSupervisionRecords(doc)}
+        </div>
     `;
 
     const detailActions = document.getElementById('detailActions');
@@ -3496,6 +3597,10 @@ function viewDocument(id) {
             <div class="detail-actions-divider"></div>
             <button class="btn btn-default" onclick="openReminderNoteModal('${doc.id}')">📝 提醒备注</button>
             <button class="btn btn-warning" onclick="openExtendDeadlineModal('${doc.id}')">⏰ 延长期限</button>
+            ${hasPendingSup ?
+                `<button class="btn btn-warning" onclick="openSupervisionFeedbackModal('${doc.id}')">📢 督办反馈</button>` :
+                `<button class="btn btn-warning" onclick="openSupervisionModal('${doc.id}')">📢 发起督办</button>`
+            }
             ${isSnoozed ?
                 `<button class="btn btn-default" onclick="cancelSnooze('${doc.id}'); viewDocument('${doc.id}');">🔔 取消暂不提醒</button>` :
                 `<button class="btn btn-default" onclick="openSnoozeModal('${doc.id}')">🙈 暂不提醒</button>`
@@ -4138,6 +4243,9 @@ function processRestoreFile(file) {
                     snoozeUntil: doc.snoozeUntil || '',
                     extendedDeadline: doc.extendedDeadline || '',
                     reminderHistory: Array.isArray(doc.reminderHistory) ? doc.reminderHistory : [],
+                    supervisionRecords: Array.isArray(doc.supervisionRecords) ? doc.supervisionRecords : [],
+                    isDeleted: doc.isDeleted === true,
+                    deletedAt: doc.deletedAt || null,
                     createdAt: doc.createdAt || null
                 };
             });
@@ -4605,6 +4713,111 @@ function cancelSnooze(docId) {
     return true;
 }
 
+function hasPendingSupervision(doc) {
+    if (!doc.supervisionRecords || doc.supervisionRecords.length === 0) {
+        return false;
+    }
+    return doc.supervisionRecords.some(function(record) {
+        return record.status === SUPERVISION_STATUS.PENDING;
+    });
+}
+
+function getLatestSupervision(doc) {
+    if (!doc.supervisionRecords || doc.supervisionRecords.length === 0) {
+        return null;
+    }
+    const sorted = doc.supervisionRecords.slice().sort(function(a, b) {
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+    return sorted[0];
+}
+
+function createSupervision(docId, reason, supervisor, feedbackDeadline) {
+    const documents = loadAllDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
+    if (docIndex === -1) return { success: false, message: '收文不存在' };
+
+    const doc = documents[docIndex];
+    const oldDoc = { ...doc };
+
+    if (doc.flowStatus === FLOW_STATUS.DONE) {
+        return { success: false, message: '已办结的收文不能发起督办' };
+    }
+
+    const now = new Date().toISOString();
+    const supervisionRecord = {
+        id: generateId(),
+        reason: reason,
+        supervisor: supervisor,
+        feedbackDeadline: feedbackDeadline,
+        result: '',
+        status: SUPERVISION_STATUS.PENDING,
+        createdAt: now,
+        feedbackAt: null
+    };
+
+    if (!doc.supervisionRecords) {
+        doc.supervisionRecords = [];
+    }
+    doc.supervisionRecords.push(supervisionRecord);
+
+    saveDocuments(documents);
+    addAuditLog(AUDIT_ACTION.SUPERVISION_CREATE, doc, oldDoc, {
+        supervisionId: supervisionRecord.id,
+        reason: reason,
+        supervisor: supervisor,
+        feedbackDeadline: feedbackDeadline
+    });
+
+    updateStats();
+    renderDocumentList();
+    renderReminderCenter();
+
+    return { success: true, record: supervisionRecord };
+}
+
+function feedbackSupervision(docId, supervisionId, result) {
+    const documents = loadAllDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
+    if (docIndex === -1) return { success: false, message: '收文不存在' };
+
+    const doc = documents[docIndex];
+    const oldDoc = { ...doc };
+
+    if (!doc.supervisionRecords) {
+        return { success: false, message: '没有督办记录' };
+    }
+
+    const recordIndex = doc.supervisionRecords.findIndex(function(r) {
+        return r.id === supervisionId;
+    });
+    if (recordIndex === -1) {
+        return { success: false, message: '督办记录不存在' };
+    }
+
+    const record = doc.supervisionRecords[recordIndex];
+    if (record.status === SUPERVISION_STATUS.FEEDBACK) {
+        return { success: false, message: '该督办已反馈' };
+    }
+
+    const now = new Date().toISOString();
+    record.result = result;
+    record.status = SUPERVISION_STATUS.FEEDBACK;
+    record.feedbackAt = now;
+
+    saveDocuments(documents);
+    addAuditLog(AUDIT_ACTION.SUPERVISION_FEEDBACK, doc, oldDoc, {
+        supervisionId: supervisionId,
+        result: result
+    });
+
+    updateStats();
+    renderDocumentList();
+    renderReminderCenter();
+
+    return { success: true, record: record };
+}
+
 function getReminderCenterData() {
     const documents = getDocuments();
     const reminderDocs = documents.filter(doc => shouldShowInReminderCenter(doc));
@@ -4713,6 +4926,8 @@ function renderReminderItem(doc) {
     const flowStatus = getDocumentStatus(doc);
     const flowStatusText = getFlowStatusText(flowStatus);
     const isExtended = !!doc.extendedDeadline;
+    const hasPending = hasPendingSupervision(doc);
+    const latestSupervision = getLatestSupervision(doc);
 
     let deadlineText = '';
     if (daysRemaining < 0) {
@@ -4724,9 +4939,12 @@ function renderReminderItem(doc) {
     }
 
     return `
-        <div class="reminder-item" onclick="viewDocument('${doc.id}')">
+        <div class="reminder-item ${hasPending ? 'has-supervision' : ''}" onclick="viewDocument('${doc.id}')">
             <div class="reminder-item-main">
-                <div class="reminder-item-title">${escapeHtml(doc.title)}</div>
+                <div class="reminder-item-title">
+                    ${escapeHtml(doc.title)}
+                    ${hasPending ? '<span class="doc-tag supervision-pending">督办中</span>' : ''}
+                </div>
                 <div class="reminder-item-meta">
                     <span class="reminder-meta-item">
                         <span class="reminder-meta-label">来文单位:</span>
@@ -4748,6 +4966,15 @@ function renderReminderItem(doc) {
                     <span class="reminder-note-text">${escapeHtml(doc.reminderNote)}</span>
                 </div>
                 ` : ''}
+                ${hasPending && latestSupervision ? `
+                <div class="reminder-item-supervision">
+                    <span class="reminder-supervision-icon">📢</span>
+                    <span class="reminder-supervision-text">
+                        督办原因：${escapeHtml(latestSupervision.reason.substring(0, 30))}${latestSupervision.reason.length > 30 ? '...' : ''}
+                        ｜ 要求反馈：${formatDate(latestSupervision.feedbackDeadline)}
+                    </span>
+                </div>
+                ` : ''}
             </div>
             <div class="reminder-item-right">
                 <div class="reminder-deadline ${daysRemaining < 0 ? 'overdue' : daysRemaining === 0 ? 'today' : 'soon'}">
@@ -4761,6 +4988,14 @@ function renderReminderItem(doc) {
                     <button class="reminder-action-btn" onclick="openExtendDeadlineModal('${doc.id}')" title="延长期限">
                         ⏰ 延期
                     </button>
+                    ${hasPending ?
+                        `<button class="reminder-action-btn supervision-btn" onclick="openSupervisionFeedbackModal('${doc.id}')" title="督办反馈">
+                            📢 反馈
+                        </button>` :
+                        `<button class="reminder-action-btn" onclick="openSupervisionModal('${doc.id}')" title="发起督办">
+                            📢 督办
+                        </button>`
+                    }
                     <button class="reminder-action-btn" onclick="openSnoozeModal('${doc.id}')" title="暂不提醒">
                         🙈 暂不提醒
                     </button>
@@ -4876,6 +5111,126 @@ function confirmSnooze() {
     if (snoozeReminder(currentReminderDocId, snoozeDate)) {
         showToast('已设置暂不提醒', 'success');
         closeSnoozeModal();
+    }
+}
+
+function openSupervisionModal(docId) {
+    currentSupervisionDocId = docId;
+    const documents = getDocuments();
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+
+    if (doc.flowStatus === FLOW_STATUS.DONE) {
+        showToast('已办结的收文不能发起督办', 'error');
+        return;
+    }
+
+    document.getElementById('supervisionDocId').value = docId;
+    document.getElementById('supervisionReason').value = '';
+    document.getElementById('supervisionSupervisor').value = '';
+
+    const today = getToday();
+    const defaultDeadline = new Date(today);
+    defaultDeadline.setDate(defaultDeadline.getDate() + 3);
+    document.getElementById('supervisionFeedbackDeadline').value = formatDateInput(defaultDeadline);
+
+    document.getElementById('supervisionModal').classList.add('show');
+    setTimeout(function() {
+        document.getElementById('supervisionReason').focus();
+    }, 100);
+}
+
+function closeSupervisionModal() {
+    document.getElementById('supervisionModal').classList.remove('show');
+    currentSupervisionDocId = null;
+}
+
+function saveSupervision(e) {
+    if (e) e.preventDefault();
+    if (!currentSupervisionDocId) return;
+
+    const reason = document.getElementById('supervisionReason').value.trim();
+    const supervisor = document.getElementById('supervisionSupervisor').value.trim();
+    const feedbackDeadline = document.getElementById('supervisionFeedbackDeadline').value;
+
+    if (!reason) {
+        showToast('请输入督办原因', 'error');
+        return;
+    }
+    if (!feedbackDeadline) {
+        showToast('请选择要求反馈时间', 'error');
+        return;
+    }
+
+    const result = createSupervision(currentSupervisionDocId, reason, supervisor, feedbackDeadline);
+    if (result.success) {
+        showToast('督办已发起', 'success');
+        closeSupervisionModal();
+
+        const detailModal = document.getElementById('detailModal');
+        if (detailModal && detailModal.classList.contains('show')) {
+            viewDocument(currentSupervisionDocId);
+        }
+    } else {
+        showToast(result.message || '发起督办失败', 'error');
+    }
+}
+
+function openSupervisionFeedbackModal(docId) {
+    currentSupervisionDocId = docId;
+    const documents = getDocuments();
+    const doc = documents.find(d => d.id === docId);
+    if (!doc) return;
+
+    const pendingRecord = (doc.supervisionRecords || []).find(function(r) {
+        return r.status === SUPERVISION_STATUS.PENDING;
+    });
+    if (!pendingRecord) {
+        showToast('没有待反馈的督办记录', 'error');
+        return;
+    }
+
+    document.getElementById('supervisionFeedbackDocId').value = docId;
+    document.getElementById('supervisionFeedbackRecordId').value = pendingRecord.id;
+    document.getElementById('supervisionFeedbackReason').textContent = pendingRecord.reason || '-';
+    document.getElementById('supervisionFeedbackSupervisor').textContent = pendingRecord.supervisor || '-';
+    document.getElementById('supervisionFeedbackDeadlineText').textContent = formatDate(pendingRecord.feedbackDeadline) || '-';
+    document.getElementById('supervisionFeedbackResult').value = '';
+
+    document.getElementById('supervisionFeedbackModal').classList.add('show');
+    setTimeout(function() {
+        document.getElementById('supervisionFeedbackResult').focus();
+    }, 100);
+}
+
+function closeSupervisionFeedbackModal() {
+    document.getElementById('supervisionFeedbackModal').classList.remove('show');
+    currentSupervisionDocId = null;
+}
+
+function saveSupervisionFeedback(e) {
+    if (e) e.preventDefault();
+    if (!currentSupervisionDocId) return;
+
+    const recordId = document.getElementById('supervisionFeedbackRecordId').value;
+    const result = document.getElementById('supervisionFeedbackResult').value.trim();
+
+    if (!result) {
+        showToast('请输入处理结果', 'error');
+        return;
+    }
+
+    const feedbackResult = feedbackSupervision(currentSupervisionDocId, recordId, result);
+    if (feedbackResult.success) {
+        showToast('督办反馈已提交', 'success');
+        closeSupervisionFeedbackModal();
+
+        const detailModal = document.getElementById('detailModal');
+        if (detailModal && detailModal.classList.contains('show')) {
+            viewDocument(currentSupervisionDocId);
+        }
+    } else {
+        showToast(feedbackResult.message || '提交反馈失败', 'error');
     }
 }
 
@@ -4996,6 +5351,7 @@ function renderRecycleBinList() {
         const flowStatusText = getFlowStatusText(flowStatus);
         const undertakingDept = doc.undertakingDepartment || doc.department || '';
         const deletedTime = formatDateTime(doc.deletedAt);
+        const hasPendingSup = hasPendingSupervision(doc);
 
         return `
             <div class="recycle-bin-item ${isSelected ? 'selected' : ''}">
@@ -5008,6 +5364,7 @@ function renderRecycleBinList() {
                         <div class="recycle-tags">
                             <span class="doc-tag urgency-${doc.urgency}">${doc.urgency}</span>
                             <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
+                            ${hasPendingSup ? '<span class="doc-tag supervision-pending">督办中</span>' : ''}
                         </div>
                     </div>
                     <div class="recycle-info">

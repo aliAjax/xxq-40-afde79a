@@ -3570,6 +3570,242 @@ body {
     border-color: #ffc53d;
 }
 
+.doc-tag.supervision-pending {
+    background: #fff7e6;
+    color: #d46b08;
+    border-color: #ffd591;
+    animation: pulse-supervision 2s ease-in-out infinite;
+}
+
+@keyframes pulse-supervision {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(250, 173, 20, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 4px rgba(250, 173, 20, 0);
+    }
+}
+
+.reminder-item.has-supervision {
+    border-left: 3px solid #faad14;
+}
+
+.reminder-item-supervision {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 13px;
+    color: #874d00;
+    background: #fff7e6;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border-left: 3px solid #faad14;
+    margin-top: 8px;
+}
+
+.reminder-supervision-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.reminder-supervision-text {
+    line-height: 1.4;
+    word-break: break-all;
+}
+
+.reminder-action-btn.supervision-btn {
+    background: #fff7e6;
+    border-color: #ffd591;
+    color: #d46b08;
+    font-weight: 500;
+}
+
+.reminder-action-btn.supervision-btn:hover {
+    background: #ffe7ba;
+    border-color: #faad14;
+    color: #ad4e00;
+}
+
+.supervision-timeline {
+    position: relative;
+}
+
+.supervision-timeline-item {
+    position: relative;
+    padding-left: 40px;
+    padding-bottom: 20px;
+}
+
+.supervision-timeline-item.flow-last {
+    padding-bottom: 0;
+}
+
+.supervision-timeline-item .flow-timeline-dot {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #fff7e6;
+    border: 2px solid #faad14;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    z-index: 1;
+}
+
+.supervision-timeline-item.supervision-feedback .flow-timeline-dot {
+    background: #f6ffed;
+    border-color: #52c41a;
+}
+
+.supervision-timeline-item .flow-timeline-line {
+    position: absolute;
+    left: 15px;
+    top: 32px;
+    bottom: 0;
+    width: 2px;
+    background: #f0f0f0;
+}
+
+.supervision-timeline-item.flow-last .flow-timeline-line {
+    display: none;
+}
+
+.supervision-timeline-item .flow-timeline-content {
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid #f0f0f0;
+}
+
+.supervision-timeline-item.supervision-pending .flow-timeline-content {
+    background: #fffbe6;
+    border-color: #ffe58f;
+}
+
+.supervision-status-tag {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: #fff7e6;
+    color: #d46b08;
+    border: 1px solid #ffd591;
+    margin-left: 8px;
+}
+
+.supervision-feedback .supervision-status-tag {
+    background: #f6ffed;
+    color: #389e0d;
+    border-color: #b7eb8f;
+}
+
+.supervision-detail {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #595959;
+}
+
+.supervision-detail-row {
+    margin-bottom: 4px;
+    display: flex;
+    align-items: flex-start;
+}
+
+.supervision-detail-row:last-child {
+    margin-bottom: 0;
+}
+
+.supervision-detail-label {
+    color: #8c8c8c;
+    flex-shrink: 0;
+}
+
+.supervision-detail-value {
+    color: #262626;
+    flex: 1;
+}
+
+.supervision-result {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed #d9d9d9;
+}
+
+.supervision-result-label {
+    font-size: 13px;
+    color: #8c8c8c;
+    margin-bottom: 4px;
+}
+
+.supervision-result-content {
+    font-size: 14px;
+    color: #262626;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.supervision-feedback-time {
+    font-size: 12px;
+    color: #8c8c8c;
+    margin-top: 6px;
+    text-align: right;
+}
+
+.supervision-actions {
+    margin-top: 10px;
+    text-align: right;
+}
+
+.btn.btn-sm {
+    padding: 4px 12px;
+    font-size: 12px;
+    height: auto;
+    line-height: 1.5;
+}
+
+.supervision-info-box {
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+}
+
+.supervision-info-item {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.supervision-info-item:last-child {
+    margin-bottom: 0;
+}
+
+.supervision-info-label {
+    color: #8c8c8c;
+    flex-shrink: 0;
+    min-width: 70px;
+}
+
+.supervision-info-value {
+    color: #262626;
+    flex: 1;
+    word-break: break-all;
+}
+
+.reminder-item-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .extend-info {
     background: #f9f9f9;
     border-radius: 8px;
