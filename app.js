@@ -938,12 +938,14 @@ function applyTemplate(templateId) {
 function openSaveTemplateModal() {
     const fromUnit = document.getElementById('fromUnit').value.trim();
     const urgency = document.getElementById('urgency').value;
-    const department = document.getElementById('department').value;
+    const undertakingDepartment = document.getElementById('undertakingDepartment')
+        ? document.getElementById('undertakingDepartment').value
+        : (document.getElementById('department') ? document.getElementById('department').value : '');
     const deadline = document.getElementById('deadline').value;
     const receiveDate = document.getElementById('receiveDate').value;
     const remark = document.getElementById('remark').value.trim();
 
-    if (!fromUnit || !department) {
+    if (!fromUnit || !undertakingDepartment) {
         showToast('请至少填写来文单位和承办科室后再保存模板', 'error');
         return;
     }
@@ -951,7 +953,7 @@ function openSaveTemplateModal() {
     document.getElementById('templateName').value = '';
     document.getElementById('previewFromUnit').textContent = fromUnit || '-';
     document.getElementById('previewUrgency').textContent = urgency || '-';
-    document.getElementById('previewDepartment').textContent = department || '-';
+    document.getElementById('previewDepartment').textContent = undertakingDepartment || '-';
 
     let deadlineText = '-';
     if (deadline && receiveDate) {
