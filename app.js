@@ -3128,6 +3128,7 @@ function saveDocument(e) {
             completedAt: null,
             completedRemark: '',
             processingRecords: [],
+            supervisionRecords: [],
             flowRecords: [
                 {
                     id: generateId(),
@@ -3599,7 +3600,10 @@ function viewDocument(id) {
             <button class="btn btn-warning" onclick="openExtendDeadlineModal('${doc.id}')">⏰ 延长期限</button>
             ${hasPendingSup ?
                 `<button class="btn btn-warning" onclick="openSupervisionFeedbackModal('${doc.id}')">📢 督办反馈</button>` :
-                `<button class="btn btn-warning" onclick="openSupervisionModal('${doc.id}')">📢 发起督办</button>`
+                (deadlineStatus === 'overdue' || deadlineStatus === 'urgent' ?
+                    `<button class="btn btn-warning" onclick="openSupervisionModal('${doc.id}')">📢 发起督办</button>` :
+                    ''
+                )
             }
             ${isSnoozed ?
                 `<button class="btn btn-default" onclick="cancelSnooze('${doc.id}'); viewDocument('${doc.id}');">🔔 取消暂不提醒</button>` :
@@ -4510,6 +4514,7 @@ function confirmRestore() {
                 snoozeUntil: item.snoozeUntil || '',
                 extendedDeadline: item.extendedDeadline || '',
                 reminderHistory: item.reminderHistory || [],
+                supervisionRecords: item.supervisionRecords || [],
                 isDeleted: false,
                 deletedAt: null,
                 createdAt: item.createdAt || new Date().toISOString()
@@ -4539,6 +4544,7 @@ function confirmRestore() {
                     flowStatus: flowStatus,
                     processingRecords: item.processingRecords || matchDoc.processingRecords || [],
                     flowRecords: item.flowRecords || matchDoc.flowRecords || [],
+                    supervisionRecords: item.supervisionRecords || matchDoc.supervisionRecords || [],
                     proposedDepartment: item.proposedDepartment !== undefined ? item.proposedDepartment : (matchDoc.proposedDepartment || ''),
                     undertakingDepartment: item.undertakingDepartment || item.department || matchDoc.undertakingDepartment || matchDoc.department || '',
                     coDepartments: item.coDepartments || matchDoc.coDepartments || [],
@@ -4742,6 +4748,11 @@ function createSupervision(docId, reason, supervisor, feedbackDeadline) {
 
     if (doc.flowStatus === FLOW_STATUS.DONE) {
         return { success: false, message: '已办结的收文不能发起督办' };
+    }
+
+    const deadlineStatus = getDeadlineStatus(doc);
+    if (deadlineStatus !== 'overdue' && deadlineStatus !== 'urgent') {
+        return { success: false, message: '仅逾期或即将到期的收文可发起督办' };
     }
 
     const now = new Date().toISOString();
@@ -5125,6 +5136,12 @@ function openSupervisionModal(docId) {
         return;
     }
 
+    const deadlineStatus = getDeadlineStatus(doc);
+    if (deadlineStatus !== 'overdue' && deadlineStatus !== 'urgent') {
+        showToast('仅逾期或即将到期的收文可发起督办', 'error');
+        return;
+    }
+
     document.getElementById('supervisionDocId').value = docId;
     document.getElementById('supervisionReason').value = '';
     document.getElementById('supervisionSupervisor').value = '';
@@ -5280,7 +5297,9 @@ function renderAuditLogList() {
             'permanent_delete': '✕',
             'batch_permanent_delete': '✕',
             'empty_recycle_bin': '🗑',
-            'flow_rule_change': '⚙️'
+            'flow_rule_change': '⚙️',
+            'supervision_create': '📢',
+            'supervision_feedback': '📨'
         };
         const icon = actionIconMap[log.action] || '📝';
         const timeStr = formatDateTime(log.timestamp);
