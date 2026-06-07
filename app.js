@@ -4655,6 +4655,7 @@ function toggleChangeHistoryItem(recordId) {
 }
 
 let changeHistoryScrollTargetId = null;
+let shouldScrollToChangeHistorySection = false;
 
 function scrollToChangeHistory(recordId) {
     changeHistoryScrollTargetId = recordId;
@@ -4869,6 +4870,14 @@ function viewDocument(id) {
                 if (section) {
                     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
+            }
+        }, 150);
+    } else if (shouldScrollToChangeHistorySection) {
+        shouldScrollToChangeHistorySection = false;
+        setTimeout(function() {
+            const section = document.getElementById('changeHistorySection');
+            if (section) {
+                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }, 150);
     }
@@ -6584,6 +6593,7 @@ function confirmRestore() {
     let flowAdded = 0, flowOverwritten = 0, flowSkipped = 0;
     let viewAdded = 0, viewOverwritten = 0, viewSkipped = 0;
     let restoredFromTrash = 0;
+    let restoreHistoryLinks = [];
 
     if (typeDocs) {
         const result = restoreDocuments(overwrite);
@@ -6591,6 +6601,7 @@ function confirmRestore() {
         docOverwritten = result.overwritten;
         docSkipped = result.skipped;
         restoredFromTrash = result.restoredFromTrash;
+        restoreHistoryLinks = result.historyLinks || [];
     }
 
     if (typeTpls) {
@@ -6627,13 +6638,17 @@ function confirmRestore() {
 
     if (docAdded + docOverwritten > 0) {
         const docs = loadAllDocuments();
-        const sampleDoc = docs[0];
+        const firstHistoryLink = restoreHistoryLinks[0] || null;
+        const sampleDoc = firstHistoryLink
+            ? docs.find(function(doc) { return doc.id === firstHistoryLink.docId; }) || docs[0]
+            : docs[0];
         addAuditLog(AUDIT_ACTION.RESTORE, sampleDoc, null, {
             documents: { add: docAdded, overwrite: docOverwritten, skip: docSkipped, restoredFromTrash: restoredFromTrash },
             templates: { add: tplAdded, overwrite: tplOverwritten, skip: tplSkipped },
             auditLogs: { add: auditAdded, overwrite: auditOverwritten, skip: auditSkipped },
             flowRules: { add: flowAdded, overwrite: flowOverwritten, skip: flowSkipped },
-            viewPresets: { add: viewAdded, overwrite: viewOverwritten, skip: viewSkipped }
+            viewPresets: { add: viewAdded, overwrite: viewOverwritten, skip: viewSkipped },
+            changeHistoryRecordId: firstHistoryLink ? firstHistoryLink.recordId : ''
         });
     }
 
@@ -6677,6 +6692,7 @@ function restoreDocuments(overwrite) {
     const seenDocNumbers = {};
     const addedDocIds = [];
     const overwrittenDocs = [];
+    const historyLinks = [];
 
     restorePackage.data.documents.forEach(function(item) {
         let isInternalDup = false;
@@ -6786,15 +6802,23 @@ function restoreDocuments(overwrite) {
     addedDocIds.forEach(function(docId) {
         const doc = finalDocs.find(d => d.id === docId);
         if (doc) {
-            addChangeHistoryRecord(docId, AUDIT_ACTION.RESTORE, '恢复备份-新增', null, doc);
+            const historyRecord = addChangeHistoryRecord(docId, AUDIT_ACTION.RESTORE, '恢复备份-新增', null, doc);
+            historyLinks.push({ docId: docId, recordId: historyRecord.id });
         }
     });
-    
+
     overwrittenDocs.forEach(function(item) {
-        addChangeHistoryRecord(item.newDoc.id, AUDIT_ACTION.RESTORE, '恢复备份-覆盖', item.oldDoc, item.newDoc);
+        const historyRecord = addChangeHistoryRecord(item.newDoc.id, AUDIT_ACTION.RESTORE, '恢复备份-覆盖', item.oldDoc, item.newDoc);
+        historyLinks.push({ docId: item.newDoc.id, recordId: historyRecord.id });
     });
-    
-    return { added: addCount, overwritten: overwriteCount, skipped: skipCount, restoredFromTrash: restoredFromTrash };
+
+    return {
+        added: addCount,
+        overwritten: overwriteCount,
+        skipped: skipCount,
+        restoredFromTrash: restoredFromTrash,
+        historyLinks: historyLinks
+    };
 }
 
 function restoreTemplates(overwrite) {
@@ -7820,6 +7844,8 @@ function viewDocFromAuditLog(docId, event, changeRecordId) {
 
     if (changeRecordId) {
         changeHistoryScrollTargetId = changeRecordId;
+    } else {
+        shouldScrollToChangeHistorySection = true;
     }
 
     if (doc.isDeleted) {
