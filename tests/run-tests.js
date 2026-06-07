@@ -616,6 +616,442 @@ test('getDeadlineDaysByUrgency - 不传规则时使用默认值', () => {
     equal(getDeadlineDaysByUrgency('加急'), 3);
 });
 
+console.log('\n9. 生产级筛选统计集成测试');
+
+const DEPARTMENTS = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
+
+function buildProductionDataset() {
+    const docs = [];
+    const baseDate = new Date('2025-01-15');
+    baseDate.setHours(0, 0, 0, 0);
+    let idCounter = 1;
+
+    for (let i = 0; i < 120; i++) {
+        const dept = DEPARTMENTS[i % DEPARTMENTS.length];
+        const urgency = ['普通', '普通', '普通', '加急', '加急', '特急'][i % 6];
+        const statuses = [
+            FLOW_STATUS.PENDING_REVIEW,
+            FLOW_STATUS.PROCESSING,
+            FLOW_STATUS.PROCESSING,
+            FLOW_STATUS.PROCESSING,
+            FLOW_STATUS.PENDING_FEEDBACK,
+            FLOW_STATUS.DONE
+        ];
+        const flowStatus = statuses[i % statuses.length];
+
+        const receiveDate = new Date(baseDate);
+        receiveDate.setDate(receiveDate.getDate() - (i % 30));
+        const receiveDateStr = formatDateInput(receiveDate);
+
+        const days = getDeadlineDaysByUrgency(urgency);
+        const deadlineDate = new Date(receiveDate);
+        deadlineDate.setDate(deadlineDate.getDate() + days + (i % 10) - 5);
+        const deadlineStr = formatDateInput(deadlineDate);
+
+        docs.push({
+            id: 'doc_' + String(idCounter++).padStart(4, '0'),
+            title: `第${i + 1}号收文 - ${dept}`,
+            docNumber: `SW-2025-${String(i + 1).padStart(4, '0')}`,
+            fromUnit: ['市政府', '市委办', '发改委', '教育局', '公安局'][i % 5],
+            department: dept,
+            undertakingDepartment: dept,
+            flowStatus: flowStatus,
+            urgency: urgency,
+            receiveDate: receiveDateStr,
+            deadline: deadlineStr,
+            extendedDeadline: '',
+            isDeleted: false,
+            flowRecords: [{ id: 'r_' + i, action: 'create' }],
+            createdAt: receiveDate.toISOString()
+        });
+    }
+
+    return docs;
+}
+
+function formatDateInput(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+const prodDocs = buildProductionDataset();
+
+test('生产级 - 数据集共 120 条，分布均衡', () => {
+    equal(prodDocs.length, 120);
+    const stats = getDocumentStats(prodDocs, today);
+    equal(stats.total, 120);
+    ok(stats.pendingReview > 0, '有待拟办');
+    ok(stats.processing > 0, '有办理中');
+    ok(stats.pendingFeedback > 0, '有待反馈');
+    ok(stats.done > 0, '有已办结');
+});
+
+test('生产级 - 按 tab 筛选各状态数量正确', () => {
+    const pending = filterDocuments(prodDocs, 'pending_review', '', {});
+    const processing = filterDocuments(prodDocs, 'processing', '', {});
+    const feedback = filterDocuments(prodDocs, 'pending_feedback', '', {});
+    const done = filterDocuments(prodDocs, 'done', '', {});
+
+    const stats = getDocumentStats(prodDocs, today);
+    equal(pending.length, stats.pendingReview);
+    equal(processing.length, stats.processing);
+    equal(feedback.length, stats.pendingFeedback);
+    equal(done.length, stats.done);
+    equal(pending.length + processing.length + feedback.length + done.length, 120);
+});
+
+test('生产级 - 多条件组合筛选：科室+紧急程度+关键词', () => {
+    const filter = {
+        department: '业务一科',
+        urgency: '加急'
+    };
+    const filtered = filterDocuments(prodDocs, 'all', 'SW-2025', filter);
+    ok(filtered.length > 0, '应有匹配结果');
+
+    filtered.forEach(doc => {
+        equal(doc.undertakingDepartment, '业务一科');
+        equal(doc.urgency, '加急');
+        ok(doc.docNumber.includes('SW-2025'));
+    });
+});
+
+test('生产级 - 日期范围筛选：收文日期 + 期限日期', () => {
+    const filter = {
+        receiveDateStart: '2025-01-01',
+        receiveDateEnd: '2025-01-15',
+        deadlineStart: '2025-01-05',
+        deadlineEnd: '2025-01-25'
+    };
+    const filtered = filterDocuments(prodDocs, 'all', '', filter);
+    ok(filtered.length > 0, '应有匹配结果');
+
+    filtered.forEach(doc => {
+        ok(doc.receiveDate >= '2025-01-01');
+        ok(doc.receiveDate <= '2025-01-15');
+        ok(getEffectiveDeadline(doc) >= '2025-01-05');
+        ok(getEffectiveDeadline(doc) <= '2025-01-25');
+    });
+});
+
+test('生产级 - urgent tab 包含即将到期 + 逾期', () => {
+    const urgentDocs = filterDocuments(prodDocs, 'urgent', '', {}, today);
+    const stats = getDocumentStats(prodDocs, today);
+    equal(urgentDocs.length, stats.urgent + stats.overdue);
+
+    urgentDocs.forEach(doc => {
+        const s = getDeadlineStatus(doc, today);
+        ok(s === 'urgent' || s === 'overdue', '状态应为 urgent 或 overdue');
+    });
+});
+
+test('生产级 - 排序验证：先按状态再按收文日期倒序', () => {
+    const filtered = filterDocuments(prodDocs, 'all', '', {});
+    equal(filtered.length, 120);
+
+    for (let i = 1; i < filtered.length; i++) {
+        const order = { pending_review: 0, processing: 1, pending_feedback: 2, done: 3 };
+        const prev = filtered[i - 1];
+        const curr = filtered[i];
+        const prevOrder = order[prev.flowStatus] !== undefined ? order[prev.flowStatus] : 0;
+        const currOrder = order[curr.flowStatus] !== undefined ? order[curr.flowStatus] : 0;
+
+        if (prevOrder !== currOrder) {
+            ok(prevOrder < currOrder, '状态升序排列');
+        } else {
+            ok(prev.receiveDate >= curr.receiveDate, '同状态下收文日期倒序');
+        }
+    }
+});
+
+test('生产级 - 空筛选结果不报错', () => {
+    const filter = { department: '不存在的科室' };
+    const filtered = filterDocuments(prodDocs, 'all', '不存在的关键词', filter);
+    deepEqual(filtered, []);
+});
+
+test('生产级 - hasAdvancedFilter 多条件都返回 true', () => {
+    equal(hasAdvancedFilter({ department: '办公室' }), true);
+    equal(hasAdvancedFilter({ urgency: '加急' }), true);
+    equal(hasAdvancedFilter({ receiveDateStart: '2025-01-01' }), true);
+    equal(hasAdvancedFilter({ receiveDateEnd: '2025-01-31' }), true);
+    equal(hasAdvancedFilter({ deadlineStart: '2025-01-01' }), true);
+    equal(hasAdvancedFilter({ deadlineEnd: '2025-01-31' }), true);
+});
+
+test('生产级 - getDocumentStats 各维度统计正确', () => {
+    const stats = getDocumentStats(prodDocs, today);
+    equal(stats.total, prodDocs.length);
+    equal(stats.pendingReview + stats.processing + stats.pendingFeedback + stats.done, stats.total);
+    ok(stats.urgent >= 0, 'urgent 不为负');
+    ok(stats.overdue >= 0, 'overdue 不为负');
+    ok(stats.urgent + stats.overdue <= stats.total - stats.done, '期限状态不包含已办结');
+});
+
+console.log('\n10. localStorage 导入保存完整回归测试');
+
+const STORAGE_KEY_INTEGRATION = 'document_registry_data';
+
+function createMockStorage() {
+    const store = {};
+    return {
+        getItem: function(key) {
+            return store[key] !== undefined ? store[key] : null;
+        },
+        setItem: function(key, value) {
+            store[key] = String(value);
+        },
+        removeItem: function(key) {
+            delete store[key];
+        },
+        clear: function() {
+            Object.keys(store).forEach(function(k) { delete store[k]; });
+        },
+        _size: function() {
+            return Object.keys(store).length;
+        },
+        _getRaw: function(key) {
+            return store[key];
+        }
+    };
+}
+
+function storageLoadAll(storage) {
+    const data = storage.getItem(STORAGE_KEY_INTEGRATION);
+    if (!data) return [];
+    try {
+        const docs = JSON.parse(data);
+        return docs.map(function(d) { return migrateDocument(d); });
+    } catch (e) {
+        return [];
+    }
+}
+
+function storageSaveAll(storage, docs) {
+    storage.setItem(STORAGE_KEY_INTEGRATION, JSON.stringify(docs));
+}
+
+function generateImportData(count, startIdx = 1) {
+    const items = [];
+    const baseDate = new Date('2025-02-01');
+    baseDate.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < count; i++) {
+        const idx = startIdx + i;
+        const dept = DEPARTMENTS[idx % DEPARTMENTS.length];
+        const urgency = ['普通', '加急', '特急'][idx % 3];
+
+        const receiveDate = new Date(baseDate);
+        receiveDate.setDate(receiveDate.getDate() + idx);
+        const receiveStr = formatDateInput(receiveDate);
+
+        const days = getDeadlineDaysByUrgency(urgency);
+        const deadlineDate = new Date(receiveDate);
+        deadlineDate.setDate(deadlineDate.getDate() + days);
+        const deadlineStr = formatDateInput(deadlineDate);
+
+        items.push({
+            id: 'imp_' + idx,
+            title: `导入文档第${idx}号`,
+            docNumber: `IMP-${String(idx).padStart(5, '0')}`,
+            fromUnit: '导入单位' + (idx % 5),
+            department: dept,
+            undertakingDepartment: dept,
+            urgency: urgency,
+            receiveDate: receiveStr,
+            deadline: deadlineStr
+        });
+    }
+    return items;
+}
+
+test('回归 - 完整导入链路：写入→读取→迁移→回读一致', () => {
+    const storage = createMockStorage();
+    const importData = generateImportData(20);
+
+    storageSaveAll(storage, importData);
+    const loaded = storageLoadAll(storage);
+
+    equal(loaded.length, 20);
+    loaded.forEach(doc => {
+        ok(doc.flowStatus, '迁移后应有 flowStatus');
+        ok(Array.isArray(doc.flowRecords) && doc.flowRecords.length > 0, '迁移后应有 flowRecords');
+        ok(doc.isDeleted === false, 'isDeleted 默认 false');
+        ok(doc.supervisionRecords !== undefined, '有 supervisionRecords');
+    });
+
+    storageSaveAll(storage, loaded);
+    const reloaded = storageLoadAll(storage);
+    equal(reloaded.length, 20);
+    equal(reloaded[0].docNumber, loaded[0].docNumber);
+    equal(reloaded[0].flowStatus, loaded[0].flowStatus);
+});
+
+test('回归 - 旧格式数据导入自动迁移', () => {
+    const storage = createMockStorage();
+    const oldFormatDocs = [
+        { id: 'old_1', title: '老式收文1', completed: false, department: '办公室' },
+        { id: 'old_2', title: '老式收文2', completed: true, completedRemark: '已办完', department: '业务一科' }
+    ];
+
+    storageSaveAll(storage, oldFormatDocs);
+    const loaded = storageLoadAll(storage);
+
+    equal(loaded.length, 2);
+    equal(loaded[0].flowStatus, FLOW_STATUS.PROCESSING);
+    equal(loaded[0].completed, false);
+    equal(loaded[1].flowStatus, FLOW_STATUS.DONE);
+    equal(loaded[1].completed, true);
+    ok(loaded[0].flowRecords.length >= 1, '未完成有创建记录');
+    ok(loaded[1].flowRecords.length >= 2, '已办结有创建+办结记录');
+    ok(!!loaded[0].undertakingDepartment, '有承办科室');
+});
+
+test('回归 - 覆盖导入：相同 docNumber 替换', () => {
+    const storage = createMockStorage();
+    const initialDocs = generateImportData(10);
+    storageSaveAll(storage, initialDocs);
+
+    const loaded1 = storageLoadAll(storage);
+    equal(loaded1.length, 10);
+    const originalTitle = loaded1[0].title;
+
+    const overwriteData = [...initialDocs];
+    overwriteData[0] = { ...overwriteData[0], title: '覆盖后的新标题' };
+    storageSaveAll(storage, overwriteData);
+
+    const loaded2 = storageLoadAll(storage);
+    equal(loaded2.length, 10);
+    equal(loaded2[0].title, '覆盖后的新标题');
+    ok(loaded2[0].title !== originalTitle, '标题确实被更新');
+});
+
+test('回归 - 导入后筛选统计一致性', () => {
+    const storage = createMockStorage();
+    const importData = generateImportData(50);
+    storageSaveAll(storage, importData);
+
+    const loaded = storageLoadAll(storage);
+    const stats = getDocumentStats(loaded, today);
+    equal(stats.total, 50);
+
+    const doneDocs = filterDocuments(loaded, 'done', '', {});
+    equal(doneDocs.length, stats.done);
+
+    const urgentDocs = filterDocuments(loaded, 'urgent', '', {}, today);
+    equal(urgentDocs.length, stats.urgent + stats.overdue);
+});
+
+test('回归 - 数据损坏时安全降级（返回空数组）', () => {
+    const storage = createMockStorage();
+    storage.setItem(STORAGE_KEY_INTEGRATION, '{bad json!!!');
+    const loaded = storageLoadAll(storage);
+    deepEqual(loaded, []);
+});
+
+test('回归 - 空存储返回空数组', () => {
+    const storage = createMockStorage();
+    const loaded = storageLoadAll(storage);
+    deepEqual(loaded, []);
+});
+
+test('回归 - 幂等性：同一份数据保存两次结果一致', () => {
+    const storage = createMockStorage();
+    const docs = generateImportData(15);
+
+    storageSaveAll(storage, docs);
+    const loaded1 = storageLoadAll(storage);
+    const checksum1 = JSON.stringify(loaded1.map(d => d.docNumber + d.flowStatus));
+
+    storageSaveAll(storage, loaded1);
+    const loaded2 = storageLoadAll(storage);
+    const checksum2 = JSON.stringify(loaded2.map(d => d.docNumber + d.flowStatus));
+
+    equal(checksum1, checksum2, '保存→读取→再保存→再读取，结果一致');
+});
+
+test('回归 - 大数据量导入持久化（100 条）', () => {
+    const storage = createMockStorage();
+    const docs = generateImportData(100, 1000);
+
+    const start = Date.now();
+    storageSaveAll(storage, docs);
+    const saveTime = Date.now() - start;
+
+    const loaded = storageLoadAll(storage);
+    equal(loaded.length, 100);
+    ok(saveTime < 500, '100 条保存应在 500ms 内完成（实际 ' + saveTime + 'ms）');
+
+    const raw = storage._getRaw(STORAGE_KEY_INTEGRATION);
+    ok(raw && raw.length > 0, '存储中有原始数据');
+    ok(JSON.parse(raw).length === 100, '原始 JSON 数据量正确');
+});
+
+test('回归 - 导入后再迁移不重复生成 flowRecords', () => {
+    const storage = createMockStorage();
+    const docs = generateImportData(5);
+    storageSaveAll(storage, docs);
+
+    const firstLoad = storageLoadAll(storage);
+    const firstRecordCount = firstLoad.map(d => d.flowRecords.length);
+
+    storageSaveAll(storage, firstLoad);
+    const secondLoad = storageLoadAll(storage);
+    const secondRecordCount = secondLoad.map(d => d.flowRecords.length);
+
+    deepEqual(firstRecordCount, secondRecordCount, '迁移幂等：flowRecords 数量不变');
+});
+
+test('回归 - 多键值模拟：文档 + 模板 + 规则 各自独立存储', () => {
+    const storage = createMockStorage();
+    const docs = generateImportData(10);
+    const templates = [{ id: 'tpl_1', name: '模板1', useCount: 0 }];
+    const rules = getDefaultFlowRules();
+
+    storage.setItem(STORAGE_KEY_INTEGRATION, JSON.stringify(docs));
+    storage.setItem('document_templates', JSON.stringify(templates));
+    storage.setItem('document_flow_rules', JSON.stringify(rules));
+
+    equal(storage._size(), 3);
+
+    const loadedDocs = JSON.parse(storage.getItem(STORAGE_KEY_INTEGRATION));
+    const loadedTemplates = JSON.parse(storage.getItem('document_templates'));
+    const loadedRules = JSON.parse(storage.getItem('document_flow_rules'));
+
+    equal(loadedDocs.length, 10);
+    equal(loadedTemplates.length, 1);
+    equal(loadedRules.urgencyDeadlineDays['普通'], 7);
+});
+
+test('回归 - localStorage 清空后可重新写入', () => {
+    const storage = createMockStorage();
+    const docs = generateImportData(5);
+
+    storageSaveAll(storage, docs);
+    equal(storageLoadAll(storage).length, 5);
+
+    storage.clear();
+    equal(storageLoadAll(storage).length, 0);
+
+    storageSaveAll(storage, docs);
+    equal(storageLoadAll(storage).length, 5);
+});
+
+test('回归 - 已删除文档在 getDocuments 语义下被过滤', () => {
+    const storage = createMockStorage();
+    const docs = generateImportData(10);
+    docs[3].isDeleted = true;
+    docs[7].isDeleted = true;
+
+    storageSaveAll(storage, docs);
+    const allDocs = storageLoadAll(storage);
+    equal(allDocs.length, 10);
+
+    const activeDocs = allDocs.filter(function(d) { return !d.isDeleted; });
+    equal(activeDocs.length, 8);
+});
+
 console.log('\n==============================================');
 console.log(`通过: ${passed} | 失败: ${failed}`);
 console.log('==============================================\n');
