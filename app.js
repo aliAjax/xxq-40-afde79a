@@ -3544,12 +3544,26 @@ function executeBatchFlowAction(e) {
                     const flowRecords = doc.flowRecords || [];
                     flowRecords.push(flowRecord);
 
+                    const processingRecord = {
+                        id: generateId(),
+                        type: 'propose',
+                        content: opinion || '批量拟办',
+                        handler: handler || '',
+                        department: department,
+                        coDepartments: coDepartments,
+                        createdAt: now
+                    };
+
+                    const processingRecords = doc.processingRecords || [];
+                    processingRecords.push(processingRecord);
+
                     const newDoc = {
                         ...doc,
                         flowStatus: doc.flowStatus === FLOW_STATUS.PENDING_REVIEW ? FLOW_STATUS.PROCESSING : doc.flowStatus,
                         proposedDepartment: department,
                         coDepartments: coDepartments.length > 0 ? coDepartments : doc.coDepartments || [],
-                        flowRecords: flowRecords
+                        flowRecords: flowRecords,
+                        processingRecords: processingRecords
                     };
 
                     const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
@@ -3588,13 +3602,27 @@ function executeBatchFlowAction(e) {
                     const flowRecords = doc.flowRecords || [];
                     flowRecords.push(flowRecord);
 
+                    const processingRecord = {
+                        id: generateId(),
+                        type: 'assign',
+                        content: opinion || '批量转办',
+                        handler: handler || '',
+                        department: department,
+                        coDepartments: coDepartments,
+                        createdAt: now
+                    };
+
+                    const processingRecords = doc.processingRecords || [];
+                    processingRecords.push(processingRecord);
+
                     const newDoc = {
                         ...doc,
                         flowStatus: FLOW_STATUS.PROCESSING,
                         undertakingDepartment: department,
                         department: department,
                         coDepartments: coDepartments.length > 0 ? coDepartments : doc.coDepartments || [],
-                        flowRecords: flowRecords
+                        flowRecords: flowRecords,
+                        processingRecords: processingRecords
                     };
 
                     const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
@@ -3683,10 +3711,23 @@ function executeBatchFlowAction(e) {
                     const flowRecords = doc.flowRecords || [];
                     flowRecords.push(flowRecord);
 
+                    const processingRecord = {
+                        id: generateId(),
+                        type: 'feedback',
+                        content: opinion,
+                        handler: handler || '',
+                        department: doc.undertakingDepartment || doc.department || '',
+                        createdAt: now
+                    };
+
+                    const processingRecords = doc.processingRecords || [];
+                    processingRecords.push(processingRecord);
+
                     const newDoc = {
                         ...doc,
                         flowStatus: FLOW_STATUS.PENDING_FEEDBACK,
-                        flowRecords: flowRecords
+                        flowRecords: flowRecords,
+                        processingRecords: processingRecords
                     };
 
                     const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
@@ -3732,9 +3773,24 @@ function executeBatchFlowAction(e) {
                     const supervisionRecords = doc.supervisionRecords || [];
                     supervisionRecords.push(supervisionRecord);
 
+                    const processingRecord = {
+                        id: generateId(),
+                        type: 'supervision',
+                        content: supervisionReason,
+                        handler: supervisionSupervisor || '',
+                        department: doc.undertakingDepartment || doc.department || '',
+                        supervisionId: supervisionRecord.id,
+                        feedbackDeadline: supervisionDeadline,
+                        createdAt: now
+                    };
+
+                    const processingRecords = doc.processingRecords || [];
+                    processingRecords.push(processingRecord);
+
                     const newDoc = {
                         ...doc,
-                        supervisionRecords: supervisionRecords
+                        supervisionRecords: supervisionRecords,
+                        processingRecords: processingRecords
                     };
 
                     const index = allDocs.findIndex(function(d) { return d.id === doc.id; });
