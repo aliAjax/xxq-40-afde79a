@@ -5,6 +5,7 @@ const FLOW_RULE_STORAGE_KEY = 'document_flow_rules';
 const VIEW_PRESETS_STORAGE_KEY = 'document_view_presets';
 const ACTIVE_VIEW_STORAGE_KEY = 'document_active_view';
 const CHANGE_HISTORY_STORAGE_KEY = 'document_change_history';
+const DEPARTMENT_STORAGE_KEY = 'document_departments';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
 const URGENCY_LIST = ['普通', '加急', '特急'];
 
@@ -314,6 +315,68 @@ function getTemplates() {
 
 function saveTemplates(templates) {
     localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+}
+
+function getDefaultDepartments() {
+    return DEPARTMENT_LIST.map(function(name, index) {
+        return {
+            id: 'dept_' + (index + 1) + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+            name: name,
+            status: 'active',
+            sort: index,
+            createdAt: new Date().toISOString()
+        };
+    });
+}
+
+function getDepartments() {
+    const data = localStorage.getItem(DEPARTMENT_STORAGE_KEY);
+    if (!data) {
+        const defaultDepts = getDefaultDepartments();
+        saveDepartments(defaultDepts);
+        return defaultDepts;
+    }
+    try {
+        const depts = JSON.parse(data);
+        if (!Array.isArray(depts) || depts.length === 0) {
+            const defaultDepts = getDefaultDepartments();
+            saveDepartments(defaultDepts);
+            return defaultDepts;
+        }
+        return depts.sort(function(a, b) { return a.sort - b.sort; });
+    } catch (e) {
+        const defaultDepts = getDefaultDepartments();
+        saveDepartments(defaultDepts);
+        return defaultDepts;
+    }
+}
+
+function saveDepartments(departments) {
+    localStorage.setItem(DEPARTMENT_STORAGE_KEY, JSON.stringify(departments));
+}
+
+function getActiveDepartments() {
+    return getDepartments()
+        .filter(function(d) { return d.status === 'active'; })
+        .sort(function(a, b) { return a.sort - b.sort; })
+        .map(function(d) { return d.name; });
+}
+
+function getAllDepartmentNames() {
+    return getDepartments()
+        .sort(function(a, b) { return a.sort - b.sort; })
+        .map(function(d) { return d.name; });
+}
+
+function isDepartmentNameValid(name) {
+    if (!name) return false;
+    return getDepartments().some(function(d) { return d.name === name; });
+}
+
+function isDepartmentActive(name) {
+    if (!name) return false;
+    const dept = getDepartments().find(function(d) { return d.name === name; });
+    return dept ? dept.status === 'active' : false;
 }
 
 function getAuditLogs() {
@@ -980,6 +1043,549 @@ function addFlowRuleChangeAuditLog(oldRules, newRules) {
     saveAuditLogs(logs);
 }
 
+function openDepartmentManagement() {
+    renderDepartmentManagementList();
+    document.getElementById('departmentManagementModal').classList.add('show');
+}
+
+function closeDepartmentManagement() {
+    document.getElementById('departmentManagementModal').classList.remove('show');
+}
+
+function renderDepartmentManagementList() {
+    const departments = getDepartments();
+    const container = document.getElementById('departmentManagementList');
+    if (!container) return;
+
+    if (departments.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">🏢</div><p class="empty-text">暂无科室，点击上方按钮新增</p></div>';
+        return;
+    }
+
+    const html = departments.map(function(dept, index) {
+        const isActive = dept.status === 'active';
+        const statusBadge = isActive
+            ? '<span class="dept-status-badge active">启用</span>'
+            : '<span class="dept-status-badge disabled">停用</span>';
+        const deptClass = isActive ? 'dept-item' : 'dept-item dept-item-disabled';
+
+        return `
+            <div class="${deptClass}" data-id="${dept.id}" data-index="${index}">
+                <div class="dept-item-drag" title="拖拽排序">⋮⋮</div>
+                <div class="dept-item-info">
+                    <div class="dept-item-name">${escapeHtml(dept.name)} ${statusBadge}</div>
+                    <div class="dept-item-meta">排序：${index + 1} · 创建于 ${formatDate(dept.createdAt)}</div>
+                </div>
+                <div class="dept-item-actions">
+                    <button class="btn btn-default btn-xs" onclick="editDepartment('${dept.id}')">
+                        <span class="btn-icon">✏️</span> 重命名
+                    </button>
+                    <button class="btn btn-default btn-xs" onclick="moveDepartment('${dept.id}', -1)" ${index === 0 ? 'disabled' : ''}>
+                        <span class="btn-icon">↑</span> 上移
+                    </button>
+                    <button class="btn btn-default btn-xs" onclick="moveDepartment('${dept.id}', 1)" ${index === departments.length - 1 ? 'disabled' : ''}>
+                        <span class="btn-icon">↓</span> 下移
+                    </button>
+                    <button class="btn ${isActive ? 'btn-warning' : 'btn-success'} btn-xs" onclick="toggleDepartmentStatus('${dept.id}')">
+                        <span class="btn-icon">${isActive ? '⏸' : '▶'}</span> ${isActive ? '停用' : '启用'}
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+    setupDepartmentDragAndDrop();
+}
+
+function setupDepartmentDragAndDrop() {
+    const container = document.getElementById('departmentManagementList');
+    if (!container) return;
+
+    let draggedItem = null;
+    let draggedIndex = -1;
+
+    const items = container.querySelectorAll('.dept-item');
+    items.forEach(function(item) {
+        item.setAttribute('draggable', 'true');
+
+        item.addEventListener('dragstart', function(e) {
+            draggedItem = item;
+            draggedIndex = parseInt(item.getAttribute('data-index'));
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+
+        item.addEventListener('dragend', function() {
+            item.classList.remove('dragging');
+            const allItems = container.querySelectorAll('.dept-item');
+            allItems.forEach(function(i) { i.classList.remove('drag-over'); });
+            draggedItem = null;
+            draggedIndex = -1;
+        });
+
+        item.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            item.classList.add('drag-over');
+        });
+
+        item.addEventListener('dragleave', function() {
+            item.classList.remove('drag-over');
+        });
+
+        item.addEventListener('drop', function(e) {
+            e.preventDefault();
+            item.classList.remove('drag-over');
+            if (!draggedItem || draggedItem === item) return;
+
+            const targetIndex = parseInt(item.getAttribute('data-index'));
+            if (isNaN(targetIndex) || targetIndex === draggedIndex) return;
+
+            moveDepartmentByIndex(draggedIndex, targetIndex);
+        });
+    });
+}
+
+function moveDepartmentByIndex(fromIndex, toIndex) {
+    const departments = getDepartments();
+    if (fromIndex < 0 || fromIndex >= departments.length) return;
+    if (toIndex < 0 || toIndex >= departments.length) return;
+
+    const [dept] = departments.splice(fromIndex, 1);
+    departments.splice(toIndex, 0, dept);
+
+    departments.forEach(function(d, i) { d.sort = i; });
+    saveDepartments(departments);
+    renderDepartmentManagementList();
+    refreshAllDepartmentSelects();
+}
+
+function moveDepartment(deptId, direction) {
+    const departments = getDepartments();
+    const index = departments.findIndex(function(d) { return d.id === deptId; });
+    if (index === -1) return;
+
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= departments.length) return;
+
+    moveDepartmentByIndex(index, newIndex);
+}
+
+function openAddDepartmentModal() {
+    document.getElementById('editDepartmentId').value = '';
+    document.getElementById('addDeptModalTitle').textContent = '新增科室';
+    document.getElementById('deptName').value = '';
+    document.getElementById('syncHistoryDeptSyncSection').style.display = 'none';
+    document.getElementById('syncHistoryData').checked = false;
+    document.getElementById('addDepartmentModal').classList.add('show');
+    setTimeout(function() { document.getElementById('deptName').focus(); }, 100);
+}
+
+function editDepartment(deptId) {
+    const departments = getDepartments();
+    const dept = departments.find(function(d) { return d.id === deptId; });
+    if (!dept) return;
+
+    document.getElementById('editDepartmentId').value = dept.id;
+    document.getElementById('addDeptModalTitle').textContent = '重命名科室';
+    document.getElementById('deptName').value = dept.name;
+    document.getElementById('syncHistoryDeptSyncSection').style.display = 'block';
+    document.getElementById('syncHistoryData').checked = false;
+    document.getElementById('addDepartmentModal').classList.add('show');
+    setTimeout(function() {
+        const input = document.getElementById('deptName');
+        input.focus();
+        input.select();
+    }, 100);
+}
+
+function closeAddDepartmentModal() {
+    document.getElementById('addDepartmentModal').classList.remove('show');
+}
+
+function saveDepartment(e) {
+    if (e) e.preventDefault();
+
+    const deptId = document.getElementById('editDepartmentId').value;
+    const deptName = document.getElementById('deptName').value.trim();
+    const syncHistory = document.getElementById('syncHistoryData').checked;
+
+    if (!deptName) {
+        showToast('请输入科室名称', 'error');
+        return;
+    }
+
+    const departments = getDepartments();
+    const existingDept = departments.find(function(d) { return d.name === deptName && d.id !== deptId; });
+    if (existingDept) {
+        showToast('已存在同名科室', 'error');
+        return;
+    }
+
+    if (deptId) {
+        const dept = departments.find(function(d) { return d.id === deptId; });
+        if (!dept) {
+            showToast('科室不存在', 'error');
+            return;
+        }
+        const oldName = dept.name;
+        dept.name = deptName;
+        dept.updatedAt = new Date().toISOString();
+        saveDepartments(departments);
+
+        if (syncHistory && oldName !== deptName) {
+            renameDepartmentInHistory(oldName, deptName);
+        }
+
+        showToast('科室重命名成功', 'success');
+    } else {
+        const newDept = {
+            id: 'dept_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8),
+            name: deptName,
+            status: 'active',
+            sort: departments.length,
+            createdAt: new Date().toISOString()
+        };
+        departments.push(newDept);
+        saveDepartments(departments);
+        showToast('科室新增成功', 'success');
+    }
+
+    closeAddDepartmentModal();
+    renderDepartmentManagementList();
+    refreshAllDepartmentSelects();
+}
+
+function toggleDepartmentStatus(deptId) {
+    const departments = getDepartments();
+    const dept = departments.find(function(d) { return d.id === deptId; });
+    if (!dept) return;
+
+    const newStatus = dept.status === 'active' ? 'disabled' : 'active';
+    const actionText = newStatus === 'active' ? '启用' : '停用';
+
+    if (newStatus === 'disabled') {
+        if (!confirm('确定要停用科室「' + dept.name + '」吗？\n\n停用后，新增和流转收文时将不能再选择该科室，但历史数据仍可正常查看。')) {
+            return;
+        }
+    }
+
+    dept.status = newStatus;
+    dept.updatedAt = new Date().toISOString();
+    saveDepartments(departments);
+    renderDepartmentManagementList();
+    refreshAllDepartmentSelects();
+    showToast('科室' + actionText + '成功', 'success');
+}
+
+function renameDepartmentInHistory(oldName, newName) {
+    if (oldName === newName) return;
+
+    let updatedCount = 0;
+
+    const docs = loadAllDocuments();
+    docs.forEach(function(doc) {
+        let changed = false;
+        if (doc.department === oldName) {
+            doc.department = newName;
+            changed = true;
+        }
+        if (doc.proposedDepartment === oldName) {
+            doc.proposedDepartment = newName;
+            changed = true;
+        }
+        if (doc.undertakingDepartment === oldName) {
+            doc.undertakingDepartment = newName;
+            changed = true;
+        }
+        if (Array.isArray(doc.coDepartments) && doc.coDepartments.includes(oldName)) {
+            doc.coDepartments = doc.coDepartments.map(function(d) { return d === oldName ? newName : d; });
+            changed = true;
+        }
+        if (changed) updatedCount++;
+    });
+    if (updatedCount > 0) {
+        saveDocuments(docs);
+    }
+
+    const templates = getTemplates();
+    let tplUpdated = 0;
+    templates.forEach(function(tpl) {
+        let changed = false;
+        if (tpl.department === oldName) {
+            tpl.department = newName;
+            changed = true;
+        }
+        if (tpl.proposedDepartment === oldName) {
+            tpl.proposedDepartment = newName;
+            changed = true;
+        }
+        if (tpl.undertakingDepartment === oldName) {
+            tpl.undertakingDepartment = newName;
+            changed = true;
+        }
+        if (Array.isArray(tpl.coDepartments) && tpl.coDepartments.includes(oldName)) {
+            tpl.coDepartments = tpl.coDepartments.map(function(d) { return d === oldName ? newName : d; });
+            changed = true;
+        }
+        if (changed) tplUpdated++;
+    });
+    if (tplUpdated > 0) {
+        saveTemplates(templates);
+    }
+
+    const presets = getViewPresets();
+    let presetUpdated = 0;
+    presets.forEach(function(preset) {
+        if (preset.filters && preset.filters.department === oldName) {
+            preset.filters.department = newName;
+            presetUpdated++;
+        }
+    });
+    if (presetUpdated > 0) {
+        saveViewPresets(presets);
+    }
+
+    showToast('已同步更新 ' + updatedCount + ' 条收文、' + tplUpdated + ' 个模板、' + presetUpdated + ' 个视图预设', 'success');
+}
+
+function renderFilterDepartmentOptions() {
+    const select = document.getElementById('filterDepartment');
+    if (!select) return;
+    const currentValue = select.value;
+    const depts = getAllDepartmentNames();
+    let html = '<option value="">全部科室</option>';
+    depts.forEach(function(dept) {
+        const isActive = isDepartmentActive(dept);
+        const disabledAttr = isActive ? '' : ' disabled';
+        const label = isActive ? dept : (dept + ' (已停用)');
+        html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+    });
+    select.innerHTML = html;
+    if (currentValue && depts.includes(currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+function renderFormDepartmentSelects(extraDepts) {
+    const activeDepts = getActiveDepartments();
+    const allDepts = getAllDepartmentNames();
+    const extra = extraDepts || [];
+
+    const proposedSelect = document.getElementById('proposedDepartment');
+    if (proposedSelect) {
+        const currentValue = proposedSelect.value;
+        const deptsToShow = new Set([...activeDepts]);
+        if (currentValue && allDepts.includes(currentValue)) deptsToShow.add(currentValue);
+        extra.forEach(function(d) { if (d && allDepts.includes(d)) deptsToShow.add(d); });
+        const deptList = [...deptsToShow].sort(function(a, b) {
+            return allDepts.indexOf(a) - allDepts.indexOf(b);
+        });
+
+        let html = '<option value="">请选择拟办科室（选填）</option>';
+        deptList.forEach(function(dept) {
+            const isActive = isDepartmentActive(dept);
+            const disabledAttr = isActive ? '' : ' disabled';
+            const label = isActive ? dept : (dept + ' (已停用)');
+            html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+        });
+        proposedSelect.innerHTML = html;
+        if (currentValue) {
+            proposedSelect.value = currentValue;
+        }
+    }
+
+    const undertakingSelect = document.getElementById('undertakingDepartment');
+    if (undertakingSelect) {
+        const currentValue = undertakingSelect.value;
+        const deptsToShow = new Set([...activeDepts]);
+        if (currentValue && allDepts.includes(currentValue)) deptsToShow.add(currentValue);
+        extra.forEach(function(d) { if (d && allDepts.includes(d)) deptsToShow.add(d); });
+        const deptList = [...deptsToShow].sort(function(a, b) {
+            return allDepts.indexOf(a) - allDepts.indexOf(b);
+        });
+
+        let html = '<option value="">请选择承办科室</option>';
+        deptList.forEach(function(dept) {
+            const isActive = isDepartmentActive(dept);
+            const disabledAttr = isActive ? '' : ' disabled';
+            const label = isActive ? dept : (dept + ' (已停用)');
+            html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+        });
+        undertakingSelect.innerHTML = html;
+        if (currentValue) {
+            undertakingSelect.value = currentValue;
+        }
+    }
+
+    const oldDeptSelect = document.getElementById('department');
+    if (oldDeptSelect) {
+        const currentValue = oldDeptSelect.value;
+        const deptsToShow = new Set([...activeDepts]);
+        if (currentValue && allDepts.includes(currentValue)) deptsToShow.add(currentValue);
+        extra.forEach(function(d) { if (d && allDepts.includes(d)) deptsToShow.add(d); });
+        const deptList = [...deptsToShow].sort(function(a, b) {
+            return allDepts.indexOf(a) - allDepts.indexOf(b);
+        });
+
+        let html = '<option value="">请选择承办科室</option>';
+        deptList.forEach(function(dept) {
+            const isActive = isDepartmentActive(dept);
+            const disabledAttr = isActive ? '' : ' disabled';
+            const label = isActive ? dept : (dept + ' (已停用)');
+            html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+        });
+        oldDeptSelect.innerHTML = html;
+        if (currentValue) {
+            oldDeptSelect.value = currentValue;
+        }
+    }
+}
+
+function renderBatchDepartmentSelect() {
+    const select = document.getElementById('batchDepartmentSelect');
+    if (!select) return;
+    const currentValue = select.value;
+    const activeDepts = getActiveDepartments();
+    let html = '<option value="">请选择承办科室</option>';
+    activeDepts.forEach(function(dept) {
+        html += '<option value="' + escapeHtml(dept) + '">' + escapeHtml(dept) + '</option>';
+    });
+    select.innerHTML = html;
+    if (currentValue && activeDepts.includes(currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+function renderTemplateEditDepartmentSelects(extraDepts) {
+    const activeDepts = getActiveDepartments();
+    const allDepts = getAllDepartmentNames();
+    const extra = extraDepts || [];
+
+    const proposedSelect = document.getElementById('editTemplateProposedDept');
+    if (proposedSelect) {
+        const currentValue = proposedSelect.value;
+        const deptsToShow = new Set([...activeDepts]);
+        if (currentValue && allDepts.includes(currentValue)) deptsToShow.add(currentValue);
+        extra.forEach(function(d) { if (d && allDepts.includes(d)) deptsToShow.add(d); });
+        const deptList = [...deptsToShow].sort(function(a, b) {
+            return allDepts.indexOf(a) - allDepts.indexOf(b);
+        });
+
+        let html = '<option value="">请选择拟办科室（选填）</option>';
+        deptList.forEach(function(dept) {
+            const isActive = isDepartmentActive(dept);
+            const disabledAttr = isActive ? '' : ' disabled';
+            const label = isActive ? dept : (dept + ' (已停用)');
+            html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+        });
+        proposedSelect.innerHTML = html;
+        if (currentValue) {
+            proposedSelect.value = currentValue;
+        }
+    }
+
+    const undertakingSelect = document.getElementById('editTemplateUndertakingDept');
+    if (undertakingSelect) {
+        const currentValue = undertakingSelect.value;
+        const deptsToShow = new Set([...activeDepts]);
+        if (currentValue && allDepts.includes(currentValue)) deptsToShow.add(currentValue);
+        extra.forEach(function(d) { if (d && allDepts.includes(d)) deptsToShow.add(d); });
+        const deptList = [...deptsToShow].sort(function(a, b) {
+            return allDepts.indexOf(a) - allDepts.indexOf(b);
+        });
+
+        let html = '<option value="">请选择承办科室</option>';
+        deptList.forEach(function(dept) {
+            const isActive = isDepartmentActive(dept);
+            const disabledAttr = isActive ? '' : ' disabled';
+            const label = isActive ? dept : (dept + ' (已停用)');
+            html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+        });
+        undertakingSelect.innerHTML = html;
+        if (currentValue) {
+            undertakingSelect.value = currentValue;
+        }
+    }
+}
+
+function renderFlowDepartmentSelect(extraDepts) {
+    const select = document.getElementById('flowDepartmentSelect');
+    if (!select) return;
+
+    const activeDepts = getActiveDepartments();
+    const allDepts = getAllDepartmentNames();
+    const currentValue = select.value;
+    const extra = extraDepts || [];
+
+    const deptsToShow = new Set([...activeDepts]);
+    if (currentValue && allDepts.includes(currentValue)) deptsToShow.add(currentValue);
+    extra.forEach(function(d) { if (d && allDepts.includes(d)) deptsToShow.add(d); });
+    const deptList = [...deptsToShow].sort(function(a, b) {
+        return allDepts.indexOf(a) - allDepts.indexOf(b);
+    });
+
+    let html = '<option value="">请选择科室</option>';
+    deptList.forEach(function(dept) {
+        const isActive = isDepartmentActive(dept);
+        const disabledAttr = isActive ? '' : ' disabled';
+        const label = isActive ? dept : (dept + ' (已停用)');
+        html += '<option value="' + escapeHtml(dept) + '"' + disabledAttr + '>' + escapeHtml(label) + '</option>';
+    });
+    select.innerHTML = html;
+    if (currentValue) {
+        select.value = currentValue;
+    }
+}
+
+function renderBatchFlowDepartmentSelect() {
+    const select = document.getElementById('batchFlowDepartment');
+    if (!select) return;
+    const currentValue = select.value;
+    const activeDepts = getActiveDepartments();
+    let html = '<option value="">请选择科室</option>';
+    activeDepts.forEach(function(dept) {
+        html += '<option value="' + escapeHtml(dept) + '">' + escapeHtml(dept) + '</option>';
+    });
+    select.innerHTML = html;
+    if (currentValue && activeDepts.includes(currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+function renderBatchFlowCoDeptCheckboxes() {
+    const container = document.getElementById('batchFlowCoDeptCheckboxes');
+    if (!container) return;
+
+    const activeDepts = getActiveDepartments();
+    const html = activeDepts.map(function(dept) {
+        return `
+            <label class="checkbox-label">
+                <input type="checkbox" value="${escapeHtml(dept)}">
+                <span class="custom-checkbox"></span>
+                ${escapeHtml(dept)}
+            </label>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function refreshAllDepartmentSelects() {
+    renderFilterDepartmentOptions();
+    renderFormDepartmentSelects();
+    renderBatchDepartmentSelect();
+    renderTemplateEditDepartmentSelects();
+    renderFlowDepartmentSelect();
+    renderBatchFlowDepartmentSelect();
+    renderBatchFlowCoDeptCheckboxes();
+    renderCoDepartmentCheckboxes(getSelectedCoDepartments());
+    renderEditTemplateCoDeptCheckboxes(getEditTemplateCoDepartments());
+    renderTemplateSelect();
+    renderDepartmentBoard();
+}
+
 function openFlowRuleModal() {
     loadFlowRuleSettings();
     document.getElementById('flowRuleModal').classList.add('show');
@@ -1603,6 +2209,11 @@ function openEditTemplateModal(templateId) {
     document.getElementById('editTemplateLastUsed').textContent = tpl.lastUsedAt ? formatDateTime(tpl.lastUsedAt) : '-';
     document.getElementById('editTemplateCreatedAt').textContent = tpl.createdAt ? formatDateTime(tpl.createdAt) : '-';
 
+    const extraDepts = [tpl.proposedDepartment, tpl.undertakingDepartment, tpl.department];
+    if (Array.isArray(tpl.coDepartments)) {
+        extraDepts.push(...tpl.coDepartments);
+    }
+    renderTemplateEditDepartmentSelects(extraDepts);
     renderEditTemplateCoDeptCheckboxes(tpl.coDepartments || []);
 
     document.getElementById('editTemplateModal').classList.add('show');
@@ -1616,12 +2227,28 @@ function renderEditTemplateCoDeptCheckboxes(selected) {
     const container = document.getElementById('editTemplateCoDeptCheckboxes');
     if (!container) return;
 
-    const html = DEPARTMENT_LIST.map(function(dept) {
-        const isChecked = selected.includes(dept) ? 'checked' : '';
+    const activeDepts = getActiveDepartments();
+    const allDepts = getAllDepartmentNames();
+    const selectedSet = new Set(selected || []);
+    const deptsToShow = new Set([...activeDepts]);
+    selected.forEach(function(d) { if (allDepts.includes(d)) deptsToShow.add(d); });
+    const deptList = [...deptsToShow].sort(function(a, b) {
+        const idxA = allDepts.indexOf(a);
+        const idxB = allDepts.indexOf(b);
+        return idxA - idxB;
+    });
+
+    const html = deptList.map(function(dept) {
+        const isChecked = selectedSet.has(dept) ? 'checked' : '';
+        const isActive = isDepartmentActive(dept);
+        const disabledAttr = isActive ? '' : ' disabled';
+        const labelClass = isActive ? 'co-dept-text' : 'co-dept-text dept-disabled-text';
+        const statusTag = isActive ? '' : '<span class="dept-disabled-tag">已停用</span>';
         return `
             <label class="co-dept-checkbox-label">
-                <input type="checkbox" class="edit-template-co-dept-checkbox" value="${dept}" ${isChecked}>
-                <span class="co-dept-text">${dept}</span>
+                <input type="checkbox" class="edit-template-co-dept-checkbox" value="${escapeHtml(dept)}" ${isChecked}${disabledAttr}>
+                <span class="custom-checkbox"></span>
+                <span class="${labelClass}">${escapeHtml(dept)}${statusTag}</span>
             </label>
         `;
     }).join('');
@@ -2219,7 +2846,8 @@ function getDepartmentStats() {
     const stats = {};
     const sevenDaysAgo = get7DaysAgo();
 
-    DEPARTMENT_LIST.forEach(dept => {
+    const allDeptNames = getAllDepartmentNames();
+    allDeptNames.forEach(dept => {
         stats[dept] = {
             pending_review: 0,
             processing: 0,
@@ -2296,7 +2924,8 @@ function getDepartmentStats() {
         }
     });
 
-    DEPARTMENT_LIST.forEach(dept => {
+    const allDeptNames2 = getAllDepartmentNames();
+    allDeptNames2.forEach(dept => {
         if (stats[dept]) {
             const s = stats[dept];
             s.overdueRate = s.total > 0 ? Math.round(s.overdue / s.total * 100) : 0;
@@ -2314,9 +2943,11 @@ let boardDrillContext = null;
 function renderDepartmentBoard() {
     const stats = getDepartmentStats();
     const boardCards = document.getElementById('boardCards');
+    if (!boardCards) return;
 
-    const departments = DEPARTMENT_LIST.filter(dept => stats[dept] && stats[dept].total > 0);
-    const emptyDepts = DEPARTMENT_LIST.filter(dept => !stats[dept] || stats[dept].total === 0);
+    const allDeptNames = getAllDepartmentNames();
+    const departments = allDeptNames.filter(dept => stats[dept] && stats[dept].total > 0);
+    const emptyDepts = allDeptNames.filter(dept => !stats[dept] || stats[dept].total === 0);
     const allDepts = departments.concat(emptyDepts);
 
     if (allDepts.length === 0) {
@@ -4547,6 +5178,7 @@ function selectFlowAction(actionKey) {
             if (deptSelect) {
                 deptSelect.value = doc.undertakingDepartment || doc.department || '';
             }
+            renderFlowDepartmentSelect([doc.undertakingDepartment, doc.department]);
         } else {
             deptSection.style.display = 'none';
         }
@@ -4572,12 +5204,28 @@ function renderCoDepartmentCheckboxes(selected) {
     const container = document.getElementById('coDeptCheckboxes');
     if (!container) return;
 
-    const html = DEPARTMENT_LIST.map(function(dept) {
-        const isChecked = selected.includes(dept) ? 'checked' : '';
+    const activeDepts = getActiveDepartments();
+    const allDepts = getAllDepartmentNames();
+    const selectedSet = new Set(selected || []);
+    const deptsToShow = new Set([...activeDepts]);
+    selected.forEach(function(d) { if (allDepts.includes(d)) deptsToShow.add(d); });
+    const deptList = [...deptsToShow].sort(function(a, b) {
+        const idxA = allDepts.indexOf(a);
+        const idxB = allDepts.indexOf(b);
+        return idxA - idxB;
+    });
+
+    const html = deptList.map(function(dept) {
+        const isChecked = selectedSet.has(dept) ? 'checked' : '';
+        const isActive = isDepartmentActive(dept);
+        const disabledAttr = isActive ? '' : ' disabled';
+        const labelClass = isActive ? 'co-dept-text' : 'co-dept-text dept-disabled-text';
+        const statusTag = isActive ? '' : '<span class="dept-disabled-tag">已停用</span>';
         return `
             <label class="co-dept-checkbox-label">
-                <input type="checkbox" class="co-dept-checkbox" value="${dept}" ${isChecked}>
-                <span class="co-dept-text">${dept}</span>
+                <input type="checkbox" class="co-dept-checkbox" value="${escapeHtml(dept)}" ${isChecked}${disabledAttr}>
+                <span class="custom-checkbox"></span>
+                <span class="${labelClass}">${escapeHtml(dept)}${statusTag}</span>
             </label>
         `;
     }).join('');
@@ -4726,17 +5374,37 @@ function renderCoDeptCheckboxesAdd(selected) {
     const container = document.getElementById('addCoDeptCheckboxes');
     if (!container) return;
 
-    const html = DEPARTMENT_LIST.map(function(dept) {
-        const isChecked = selected.includes(dept) ? 'checked' : '';
+    const activeDepts = getActiveDepartments();
+    const allDepts = getAllDepartmentNames();
+    const selectedSet = new Set(selected || []);
+    const deptsToShow = new Set([...activeDepts]);
+    selected.forEach(function(d) { if (allDepts.includes(d)) deptsToShow.add(d); });
+    const deptList = [...deptsToShow].sort(function(a, b) {
+        const idxA = allDepts.indexOf(a);
+        const idxB = allDepts.indexOf(b);
+        return idxA - idxB;
+    });
+
+    const html = deptList.map(function(dept) {
+        const isChecked = selectedSet.has(dept) ? 'checked' : '';
+        const isActive = isDepartmentActive(dept);
+        const disabledAttr = isActive ? '' : ' disabled';
+        const labelClass = isActive ? 'co-dept-text' : 'co-dept-text dept-disabled-text';
+        const statusTag = isActive ? '' : '<span class="dept-disabled-tag">已停用</span>';
         return `
             <label class="co-dept-checkbox-label">
-                <input type="checkbox" class="add-co-dept-checkbox" value="${dept}" ${isChecked}>
-                <span class="co-dept-text">${dept}</span>
+                <input type="checkbox" class="add-co-dept-checkbox" value="${escapeHtml(dept)}" ${isChecked}${disabledAttr}>
+                <span class="custom-checkbox"></span>
+                <span class="${labelClass}">${escapeHtml(dept)}${statusTag}</span>
             </label>
         `;
     }).join('');
 
     container.innerHTML = html;
+}
+
+function renderAddCoDeptCheckboxes() {
+    renderCoDeptCheckboxesAdd([]);
 }
 
 function getAddCoDepartments() {
@@ -4789,6 +5457,11 @@ function editDocument(id) {
     const undertakingDeptEl = document.getElementById('undertakingDepartment');
     if (undertakingDeptEl) undertakingDeptEl.value = doc.undertakingDepartment || doc.department || '';
 
+    const extraDepts = [doc.proposedDepartment, doc.undertakingDepartment, doc.department];
+    if (Array.isArray(doc.coDepartments)) {
+        extraDepts.push(...doc.coDepartments);
+    }
+    renderFormDepartmentSelects(extraDepts);
     renderCoDeptCheckboxesAdd(doc.coDepartments || []);
 
     const deadlineEl = document.getElementById('deadline');
@@ -5591,18 +6264,23 @@ let wizardValidatedData = [];
 let currentImportTab = 'paste';
 let currentPreviewFilter = 'all';
 
-const WIZARD_SYSTEM_FIELDS = [
-    { key: 'fromUnit', label: '来文单位', required: true, type: 'text' },
-    { key: 'docNumber', label: '文号', required: true, type: 'text' },
-    { key: 'title', label: '标题', required: true, type: 'text' },
-    { key: 'receiveDate', label: '收文日期', required: true, type: 'date' },
-    { key: 'urgency', label: '紧急程度', required: true, type: 'select', options: URGENCY_LIST },
-    { key: 'proposedDepartment', label: '拟办科室', required: false, type: 'select', options: DEPARTMENT_LIST },
-    { key: 'undertakingDepartment', label: '承办科室', required: true, type: 'select', options: DEPARTMENT_LIST },
-    { key: 'coDepartments', label: '协办科室', required: false, type: 'multi', options: DEPARTMENT_LIST },
-    { key: 'deadline', label: '办理期限', required: true, type: 'date' },
-    { key: 'remark', label: '备注', required: false, type: 'text' }
-];
+function getWizardSystemFields() {
+    const activeDepts = getActiveDepartments();
+    return [
+        { key: 'fromUnit', label: '来文单位', required: true, type: 'text' },
+        { key: 'docNumber', label: '文号', required: true, type: 'text' },
+        { key: 'title', label: '标题', required: true, type: 'text' },
+        { key: 'receiveDate', label: '收文日期', required: true, type: 'date' },
+        { key: 'urgency', label: '紧急程度', required: true, type: 'select', options: URGENCY_LIST },
+        { key: 'proposedDepartment', label: '拟办科室', required: false, type: 'select', options: activeDepts },
+        { key: 'undertakingDepartment', label: '承办科室', required: true, type: 'select', options: activeDepts },
+        { key: 'coDepartments', label: '协办科室', required: false, type: 'multi', options: activeDepts },
+        { key: 'deadline', label: '办理期限', required: true, type: 'date' },
+        { key: 'remark', label: '备注', required: false, type: 'text' }
+    ];
+}
+
+const WIZARD_SYSTEM_FIELDS = getWizardSystemFields();
 
 const HEADER_ALIAS_MAP = {
     'fromUnit': ['来文单位', '发文单位', '来文机关', '发文机关', '单位', 'fromUnit', 'from_unit'],
@@ -6067,7 +6745,7 @@ function isValidUrgency(urgency) {
 }
 
 function isValidDepartment(dept) {
-    return DEPARTMENT_LIST.includes(dept);
+    return isDepartmentNameValid(dept);
 }
 
 function validateWizardData() {
@@ -6640,9 +7318,10 @@ function exportFullJson() {
     const auditLogs = getAuditLogs();
     const flowRules = getFlowRules();
     const viewPresets = getViewPresets();
+    const departments = getDepartments();
 
     const hasData = documents.length > 0 || templates.length > 0 || auditLogs.length > 0 ||
-        viewPresets.length > 0 || flowRules.updatedAt !== null;
+        viewPresets.length > 0 || flowRules.updatedAt !== null || departments.length > 0;
 
     if (!hasData) {
         showToast('当前没有数据可导出', 'error');
@@ -6654,21 +7333,23 @@ function exportFullJson() {
         templates: templates,
         auditLogs: auditLogs,
         flowRules: flowRules,
-        viewPresets: viewPresets
+        viewPresets: viewPresets,
+        departments: departments
     };
 
     const checksum = generateChecksum(payload);
 
     const exportData = {
         packageType: 'full_backup',
-        version: '2.0',
+        version: '2.1',
         backupTime: new Date().toISOString(),
         summary: {
             documents: documents.length,
             templates: templates.length,
             auditLogs: auditLogs.length,
             flowRules: flowRules.updatedAt ? 1 : 0,
-            viewPresets: viewPresets.length
+            viewPresets: viewPresets.length,
+            departments: departments.length
         },
         data: payload,
         checksum: checksum
@@ -6677,7 +7358,7 @@ function exportFullJson() {
     const jsonContent = JSON.stringify(exportData, null, 2);
     const filename = getExportFileName('完整备份', 'json');
     downloadFile(jsonContent, filename, 'application/json');
-    const totalItems = documents.length + templates.length + auditLogs.length + viewPresets.length;
+    const totalItems = documents.length + templates.length + auditLogs.length + viewPresets.length + departments.length;
     showToast('成功导出完整备份（' + totalItems + ' 条数据）', 'success');
 }
 
@@ -6742,7 +7423,8 @@ function parseBackupFile(parsed) {
             templates: [],
             auditLogs: [],
             flowRules: null,
-            viewPresets: []
+            viewPresets: [],
+            departments: null
         }
     };
 
@@ -6762,6 +7444,7 @@ function parseBackupFile(parsed) {
         result.data.auditLogs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
         result.data.flowRules = payload.flowRules || null;
         result.data.viewPresets = Array.isArray(payload.viewPresets) ? payload.viewPresets : [];
+        result.data.departments = Array.isArray(payload.departments) ? payload.departments : null;
 
         if (parsed.checksum) {
             const verifyChecksum = generateChecksum(payload);
@@ -6879,6 +7562,8 @@ function updateDataTypeCounts() {
     document.getElementById('restoreTypeAuditCount').textContent = restorePackage.data.auditLogs.length + ' 条';
     document.getElementById('restoreTypeFlowCount').textContent = (restorePackage.data.flowRules ? 1 : 0) + ' 项';
     document.getElementById('restoreTypeViewCount').textContent = restorePackage.data.viewPresets.length + ' 个';
+    document.getElementById('restoreTypeDeptCount').textContent = 
+        ((restorePackage.data.departments && restorePackage.data.departments.length) || 0) + ' 个';
 
     const hasFlowRules = restorePackage.data.flowRules !== null;
     const flowTypeCheckbox = document.getElementById('restoreTypeFlowRules');
@@ -6889,14 +7574,16 @@ function updateDataTypeCounts() {
         flowTypeCheckbox.disabled = false;
     }
 
-    const typeNames = ['Documents', 'Templates', 'AuditLogs', 'FlowRules', 'ViewPresets'];
-    const dataKeys = ['documents', 'templates', 'auditLogs', 'flowRules', 'viewPresets'];
+    const typeNames = ['Documents', 'Templates', 'AuditLogs', 'FlowRules', 'ViewPresets', 'Departments'];
+    const dataKeys = ['documents', 'templates', 'auditLogs', 'flowRules', 'viewPresets', 'departments'];
     typeNames.forEach(function(name, i) {
         const checkbox = document.getElementById('restoreType' + name);
         if (checkbox) {
             const hasData = dataKeys[i] === 'flowRules'
                 ? restorePackage.data.flowRules !== null
-                : restorePackage.data[dataKeys[i]].length > 0;
+                : dataKeys[i] === 'departments'
+                    ? restorePackage.data.departments && restorePackage.data.departments.length > 0
+                    : restorePackage.data[dataKeys[i]].length > 0;
             if (!hasData) {
                 checkbox.checked = false;
                 checkbox.disabled = true;
@@ -7004,6 +7691,7 @@ function analyzeRestoreData() {
     const typeAudit = document.getElementById('restoreTypeAuditLogs').checked;
     const typeFlow = document.getElementById('restoreTypeFlowRules').checked;
     const typeView = document.getElementById('restoreTypeViewPresets').checked;
+    const typeDept = document.getElementById('restoreTypeDepartments').checked;
 
     const docAnalysis = typeDocs
         ? analyzeArrayItems(restorePackage.data.documents, loadAllDocuments(), ['id', 'docNumber'], overwrite)
@@ -7033,9 +7721,21 @@ function analyzeRestoreData() {
         ? analyzeArrayItems(restorePackage.data.viewPresets, getViewPresets(), ['id', 'name'], overwrite)
         : { add: [], overwrite: [], skip: [], all: [] };
 
-    const totalAdd = docAnalysis.add.length + tplAnalysis.add.length + auditAnalysis.add.length + flowAdd + viewAnalysis.add.length;
-    const totalOver = docAnalysis.overwrite.length + tplAnalysis.overwrite.length + auditAnalysis.overwrite.length + flowOver + viewAnalysis.overwrite.length;
-    const totalSkip = docAnalysis.skip.length + tplAnalysis.skip.length + auditAnalysis.skip.length + flowSkip + viewAnalysis.skip.length;
+    const existingDepts = getDepartments();
+    let deptAdd = 0, deptOver = 0, deptSkip = 0;
+    if (typeDept && restorePackage.data.departments && restorePackage.data.departments.length > 0) {
+        if (existingDepts.length === 0) {
+            deptAdd = restorePackage.data.departments.length;
+        } else if (overwrite) {
+            deptOver = restorePackage.data.departments.length;
+        } else {
+            deptSkip = restorePackage.data.departments.length;
+        }
+    }
+
+    const totalAdd = docAnalysis.add.length + tplAnalysis.add.length + auditAnalysis.add.length + flowAdd + viewAnalysis.add.length + deptAdd;
+    const totalOver = docAnalysis.overwrite.length + tplAnalysis.overwrite.length + auditAnalysis.overwrite.length + flowOver + viewAnalysis.overwrite.length + deptOver;
+    const totalSkip = docAnalysis.skip.length + tplAnalysis.skip.length + auditAnalysis.skip.length + flowSkip + viewAnalysis.skip.length + deptSkip;
     const total = totalAdd + totalOver + totalSkip;
 
     restoreAnalysis = {
@@ -7079,6 +7779,13 @@ function analyzeRestoreData() {
                 overwrite: viewAnalysis.overwrite.length,
                 skip: viewAnalysis.skip.length,
                 items: viewAnalysis.all
+            },
+            departments: {
+                total: (restorePackage.data.departments && restorePackage.data.departments.length) || 0,
+                add: deptAdd,
+                overwrite: deptOver,
+                skip: deptSkip,
+                data: restorePackage.data.departments
             }
         }
     };
@@ -7243,6 +7950,10 @@ function renderRestorePreview() {
     document.getElementById('catViewOver').textContent = restoreAnalysis.categories.viewPresets.overwrite;
     document.getElementById('catViewSkip').textContent = restoreAnalysis.categories.viewPresets.skip;
 
+    document.getElementById('catDeptAdd').textContent = restoreAnalysis.categories.departments.add;
+    document.getElementById('catDeptOver').textContent = restoreAnalysis.categories.departments.overwrite;
+    document.getElementById('catDeptSkip').textContent = restoreAnalysis.categories.departments.skip;
+
     const warningEl = document.getElementById('restoreDuplicateWarning');
     if (restoreAnalysis.hasDuplicate) {
         warningEl.style.display = 'flex';
@@ -7281,12 +7992,14 @@ function confirmRestore() {
     const typeAudit = document.getElementById('restoreTypeAuditLogs').checked;
     const typeFlow = document.getElementById('restoreTypeFlowRules').checked;
     const typeView = document.getElementById('restoreTypeViewPresets').checked;
+    const typeDept = document.getElementById('restoreTypeDepartments').checked;
 
     let docAdded = 0, docOverwritten = 0, docSkipped = 0;
     let tplAdded = 0, tplOverwritten = 0, tplSkipped = 0;
     let auditAdded = 0, auditOverwritten = 0, auditSkipped = 0;
     let flowAdded = 0, flowOverwritten = 0, flowSkipped = 0;
     let viewAdded = 0, viewOverwritten = 0, viewSkipped = 0;
+    let deptAdded = 0, deptOverwritten = 0, deptSkipped = 0;
     let restoredFromTrash = 0;
     let restoreHistoryLinks = [];
 
@@ -7327,9 +8040,16 @@ function confirmRestore() {
         viewSkipped = result.skipped;
     }
 
-    const totalAdded = docAdded + tplAdded + auditAdded + flowAdded + viewAdded;
-    const totalOver = docOverwritten + tplOverwritten + auditOverwritten + flowOverwritten + viewOverwritten;
-    const totalSkip = docSkipped + tplSkipped + auditSkipped + flowSkipped + viewSkipped;
+    if (typeDept && restorePackage.data.departments && restorePackage.data.departments.length > 0) {
+        const result = restoreDepartments(overwrite);
+        deptAdded = result.added;
+        deptOverwritten = result.overwritten;
+        deptSkipped = result.skipped;
+    }
+
+    const totalAdded = docAdded + tplAdded + auditAdded + flowAdded + viewAdded + deptAdded;
+    const totalOver = docOverwritten + tplOverwritten + auditOverwritten + flowOverwritten + viewOverwritten + deptOverwritten;
+    const totalSkip = docSkipped + tplSkipped + auditSkipped + flowSkipped + viewSkipped + deptSkipped;
 
     if (docAdded + docOverwritten > 0) {
         const docs = loadAllDocuments();
@@ -7343,7 +8063,12 @@ function confirmRestore() {
             auditLogs: { add: auditAdded, overwrite: auditOverwritten, skip: auditSkipped },
             flowRules: { add: flowAdded, overwrite: flowOverwritten, skip: flowSkipped },
             viewPresets: { add: viewAdded, overwrite: viewOverwritten, skip: viewSkipped },
+            departments: { add: deptAdded, overwrite: deptOverwritten, skip: deptSkipped },
             changeHistoryRecordId: firstHistoryLink ? firstHistoryLink.recordId : ''
+        });
+    } else if (deptAdded + deptOverwritten > 0) {
+        addAuditLog(AUDIT_ACTION.RESTORE, null, null, {
+            departments: { add: deptAdded, overwrite: deptOverwritten, skip: deptSkipped }
         });
     }
 
@@ -7354,6 +8079,7 @@ function confirmRestore() {
     if (auditAdded + auditOverwritten > 0) parts.push('审计日志 ' + auditAdded + '新增/' + auditOverwritten + '覆盖');
     if (flowAdded + flowOverwritten > 0) parts.push('流程规则 ' + (flowAdded + flowOverwritten) + '项');
     if (viewAdded + viewOverwritten > 0) parts.push('保存视图 ' + viewAdded + '新增/' + viewOverwritten + '覆盖');
+    if (deptAdded + deptOverwritten > 0) parts.push('科室字典 ' + deptAdded + '新增/' + deptOverwritten + '覆盖');
     msg = '恢复完成：' + parts.join('，');
     if (totalSkip > 0) msg += '，跳过 ' + totalSkip + ' 条';
 
@@ -7361,6 +8087,10 @@ function confirmRestore() {
     closeRestoreModal();
 
     refreshAllViews();
+    if (deptAdded + deptOverwritten > 0) {
+        refreshAllDepartmentSelects();
+        renderDepartmentBoard();
+    }
 }
 
 function restoreDocuments(overwrite) {
@@ -7655,6 +8385,29 @@ function restoreViewPresets(overwrite) {
     });
 
     saveViewPresets(finalViews);
+    return { added: addCount, overwritten: overwriteCount, skipped: skipCount };
+}
+
+function restoreDepartments(overwrite) {
+    const existing = getDepartments();
+    const backupDepts = restorePackage.data.departments || [];
+
+    let addCount = 0, overwriteCount = 0, skipCount = 0;
+
+    if (backupDepts.length === 0) {
+        return { added: 0, overwritten: 0, skipped: 0 };
+    }
+
+    if (existing.length === 0) {
+        saveDepartments(backupDepts);
+        addCount = backupDepts.length;
+    } else if (overwrite) {
+        saveDepartments(backupDepts);
+        overwriteCount = backupDepts.length;
+    } else {
+        skipCount = backupDepts.length;
+    }
+
     return { added: addCount, overwritten: overwriteCount, skipped: skipCount };
 }
 
@@ -8719,6 +9472,14 @@ function viewRecycleDocument(id) {
 }
 
 function init() {
+    renderFilterDepartmentOptions();
+    renderFormDepartmentSelects();
+    renderBatchDepartmentSelect();
+    renderTemplateEditDepartmentSelects();
+    renderBatchFlowDepartmentSelect();
+    renderBatchFlowCoDeptCheckboxes();
+    renderAddCoDeptCheckboxes();
+
     document.getElementById('documentForm').addEventListener('submit', saveDocument);
 
     document.getElementById('searchInput').addEventListener('input', function() {
@@ -8776,6 +9537,8 @@ function init() {
             closeReminderNoteModal();
             closeExtendDeadlineModal();
             closeSnoozeModal();
+            closeDepartmentManagement();
+            closeAddDepartmentModal();
         }
     });
 

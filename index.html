@@ -83,6 +83,9 @@
                 <button class="search-btn" onclick="searchDocuments()">🔍</button>
             </div>
             <div class="toolbar-actions">
+                <button class="btn btn-default" onclick="openDepartmentManagement()">
+                    <span class="btn-icon">🏢</span> 科室管理
+                </button>
                 <button class="btn btn-default" onclick="openFlowRuleModal()">
                     <span class="btn-icon">⚙️</span> 流程规则
                 </button>
@@ -1038,6 +1041,12 @@
                                 <span class="data-type-name">保存视图</span>
                                 <span class="data-type-count" id="restoreTypeViewCount">0 个</span>
                             </label>
+                            <label class="data-type-item">
+                                <input type="checkbox" id="restoreTypeDepartments" checked onchange="updateRestorePreview()">
+                                <span class="data-type-icon">🏢</span>
+                                <span class="data-type-name">科室字典</span>
+                                <span class="data-type-count" id="restoreTypeDeptCount">0 个</span>
+                            </label>
                         </div>
                     </div>
 
@@ -1097,6 +1106,17 @@
                                     <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catViewAdd">0</span></div>
                                     <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catViewOver">0</span></div>
                                     <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catViewSkip">0</span></div>
+                                </div>
+                            </div>
+                            <div class="category-summary-card">
+                                <div class="category-card-header">
+                                    <span class="category-card-icon">🏢</span>
+                                    <span class="category-card-name">科室字典</span>
+                                </div>
+                                <div class="category-card-stats">
+                                    <div class="cat-stat add"><span class="cat-stat-label">新增</span><span class="cat-stat-value" id="catDeptAdd">0</span></div>
+                                    <div class="cat-stat overwrite"><span class="cat-stat-label">覆盖</span><span class="cat-stat-value" id="catDeptOver">0</span></div>
+                                    <div class="cat-stat skip"><span class="cat-stat-label">跳过</span><span class="cat-stat-value" id="catDeptSkip">0</span></div>
                                 </div>
                             </div>
                         </div>
@@ -1885,6 +1905,62 @@
                 <button class="btn btn-default" onclick="closeFlowRuleModal()">取消</button>
                 <button class="btn btn-primary" onclick="saveFlowRuleSettings()">保存规则</button>
             </div>
+        </div>
+    </div>
+
+    <div class="modal" id="departmentManagementModal">
+        <div class="modal-overlay" onclick="closeDepartmentManagement()"></div>
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2>科室字典管理</h2>
+                <button class="modal-close" onclick="closeDepartmentManagement()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="dept-mgmt-toolbar">
+                    <button class="btn btn-primary btn-sm" onclick="openAddDepartmentModal()">
+                        <span class="btn-icon">➕</span> 新增科室
+                    </button>
+                    <div class="dept-mgmt-tip">
+                        <span class="tip-icon">💡</span>
+                        <span>提示：可拖拽调整排序；停用科室后，旧数据仍可查看，但新增和流转时不能再选择</span>
+                    </div>
+                </div>
+                <div class="dept-mgmt-list" id="departmentManagementList">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="closeDepartmentManagement()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="addDepartmentModal">
+        <div class="modal-overlay" onclick="closeAddDepartmentModal()"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2 id="addDeptModalTitle">新增科室</h2>
+                <button class="modal-close" onclick="closeAddDepartmentModal()">✕</button>
+            </div>
+            <form id="addDepartmentForm" class="modal-body" onsubmit="saveDepartment(event)">
+                <input type="hidden" id="editDepartmentId">
+                <div class="form-group">
+                    <label class="form-label" for="deptName">科室名称 <span class="required">*</span></label>
+                    <input type="text" id="deptName" class="form-input" placeholder="请输入科室名称" required>
+                </div>
+                <div class="form-group" id="syncHistoryDeptSyncSection" style="display: none;">
+                    <label class="form-label">同步历史数据</label>
+                    <label class="checkbox-label" style="margin-top: 8px;">
+                        <input type="checkbox" id="syncHistoryData">
+                        <span class="custom-checkbox"></span>
+                        <span>同步更新所有历史收文中的科室名称</span>
+                    </label>
+                    <p class="form-hint">勾选后，所有使用旧科室名称的收文、模板、视图预设等都会更新为新名称</p>
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeAddDepartmentModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
         </div>
     </div>
 
