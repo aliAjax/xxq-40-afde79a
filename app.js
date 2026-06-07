@@ -1175,7 +1175,21 @@ function renderLatestRecordSummary(doc) {
 }
 
 function renderFlowTimeline(doc) {
-    const records = doc.flowRecords || [];
+    const flowRecords = (doc.flowRecords || []).map(function(record) {
+        return {
+            type: 'flow',
+            createdAt: record.createdAt,
+            record: record
+        };
+    });
+    const supervisionRecords = (doc.supervisionRecords || []).map(function(record) {
+        return {
+            type: 'supervision',
+            createdAt: record.createdAt,
+            record: record
+        };
+    });
+    const records = flowRecords.concat(supervisionRecords);
     if (records.length === 0) {
         return '<div class="records-empty">暂无流转记录</div>';
     }
@@ -1183,8 +1197,61 @@ function renderFlowTimeline(doc) {
         return new Date(a.createdAt) - new Date(b.createdAt);
     });
     let html = '<div class="flow-timeline">';
-    sortedRecords.forEach(function(record, index) {
+    sortedRecords.forEach(function(item, index) {
         const isLast = index === sortedRecords.length - 1;
+        const record = item.record;
+
+        if (item.type === 'supervision') {
+            const isPending = record.status === SUPERVISION_STATUS.PENDING;
+            const statusText = isPending ? '待反馈' : '已反馈';
+            const statusClass = isPending ? 'supervision-pending' : 'supervision-feedback';
+
+            html += `
+                <div class="flow-timeline-item supervision-timeline-item ${statusClass} ${isLast ? 'flow-last' : ''}">
+                    <div class="flow-timeline-dot">
+                        <span class="flow-dot-icon">📢</span>
+                    </div>
+                    <div class="flow-timeline-line"></div>
+                    <div class="flow-timeline-content">
+                        <div class="flow-timeline-header">
+                            <span class="flow-action-tag">${isPending ? '发起督办' : '督办反馈'}</span>
+                            <span class="supervision-status-tag">${statusText}</span>
+                            <span class="flow-time">${formatDateTime(record.createdAt)}</span>
+                        </div>
+                        <div class="supervision-detail">
+                            <div class="supervision-detail-row">
+                                <span class="supervision-detail-label">督办原因：</span>
+                                <span class="supervision-detail-value">${escapeHtml(record.reason)}</span>
+                            </div>
+                            ${record.supervisor ? `
+                            <div class="supervision-detail-row">
+                                <span class="supervision-detail-label">督办人：</span>
+                                <span class="supervision-detail-value">${escapeHtml(record.supervisor)}</span>
+                            </div>
+                            ` : ''}
+                            <div class="supervision-detail-row">
+                                <span class="supervision-detail-label">要求反馈：</span>
+                                <span class="supervision-detail-value">${formatDate(record.feedbackDeadline)}</span>
+                            </div>
+                        </div>
+                        ${!isPending ? `
+                            <div class="supervision-result">
+                                <div class="supervision-result-label">处理结果：</div>
+                                <div class="supervision-result-content">${escapeHtml(record.result)}</div>
+                                ${record.feedbackAt ? `<div class="supervision-feedback-time">反馈时间：${formatDateTime(record.feedbackAt)}</div>` : ''}
+                            </div>
+                        ` : ''}
+                        ${isPending && !doc.isDeleted ? `
+                            <div class="supervision-actions">
+                                <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); openSupervisionFeedbackModal('${doc.id}')">反馈</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
         const actionText = FLOW_ACTION_TEXT[record.action] || record.action;
         const fromStatusText = record.fromStatus ? FLOW_STATUS_TEXT[record.fromStatus] : '-';
         const toStatusText = record.toStatus ? FLOW_STATUS_TEXT[record.toStatus] : '-';
@@ -1253,69 +1320,6 @@ function renderProcessingRecords(doc) {
                     </div>
                     <div class="record-text">${escapeHtml(record.content)}</div>
                     ${record.handler ? `<div class="record-handler">处理人：${escapeHtml(record.handler)}</div>` : ''}
-                </div>
-            </div>
-        `;
-    });
-    html += '</div>';
-    return html;
-}
-
-function renderSupervisionRecords(doc) {
-    const records = doc.supervisionRecords || [];
-    if (records.length === 0) {
-        return '<div class="records-empty">暂无督办记录</div>';
-    }
-    const sortedRecords = records.slice().sort(function(a, b) {
-        return new Date(a.createdAt) - new Date(b.createdAt);
-    });
-    let html = '<div class="supervision-timeline">';
-    sortedRecords.forEach(function(record, index) {
-        const isLast = index === sortedRecords.length - 1;
-        const isPending = record.status === SUPERVISION_STATUS.PENDING;
-        const statusText = isPending ? '待反馈' : '已反馈';
-        const statusClass = isPending ? 'supervision-pending' : 'supervision-feedback';
-
-        html += `
-            <div class="supervision-timeline-item ${statusClass} ${isLast ? 'flow-last' : ''}">
-                <div class="flow-timeline-dot">
-                    <span class="flow-dot-icon">📢</span>
-                </div>
-                <div class="flow-timeline-line"></div>
-                <div class="flow-timeline-content">
-                    <div class="flow-timeline-header">
-                        <span class="flow-action-tag">${isPending ? '发起督办' : '督办反馈'}</span>
-                        <span class="supervision-status-tag">${statusText}</span>
-                        <span class="flow-time">${formatDateTime(record.createdAt)}</span>
-                    </div>
-                    <div class="supervision-detail">
-                        <div class="supervision-detail-row">
-                            <span class="supervision-detail-label">督办原因：</span>
-                            <span class="supervision-detail-value">${escapeHtml(record.reason)}</span>
-                        </div>
-                        ${record.supervisor ? `
-                        <div class="supervision-detail-row">
-                            <span class="supervision-detail-label">督办人：</span>
-                            <span class="supervision-detail-value">${escapeHtml(record.supervisor)}</span>
-                        </div>
-                        ` : ''}
-                        <div class="supervision-detail-row">
-                            <span class="supervision-detail-label">要求反馈：</span>
-                            <span class="supervision-detail-value">${formatDate(record.feedbackDeadline)}</span>
-                        </div>
-                    </div>
-                    ${!isPending ? `
-                        <div class="supervision-result">
-                            <div class="supervision-result-label">处理结果：</div>
-                            <div class="supervision-result-content">${escapeHtml(record.result)}</div>
-                            ${record.feedbackAt ? `<div class="supervision-feedback-time">反馈时间：${formatDateTime(record.feedbackAt)}</div>` : ''}
-                        </div>
-                    ` : ''}
-                    ${isPending ? `
-                        <div class="supervision-actions">
-                            <button class="btn btn-sm btn-success" onclick="event.stopPropagation(); openSupervisionFeedbackModal('${doc.id}')">反馈</button>
-                        </div>
-                    ` : ''}
                 </div>
             </div>
         `;
@@ -3479,7 +3483,7 @@ function viewDocument(id) {
         doc.coDepartments.join('、') : '无';
 
     const hasPendingSup = hasPendingSupervision(doc);
-    const supervisionCount = (doc.supervisionRecords || []).length;
+    const flowTimelineCount = (doc.flowRecords || []).length + (doc.supervisionRecords || []).length;
 
     const detailContent = document.getElementById('detailContent');
     detailContent.innerHTML = `
@@ -3568,16 +3572,9 @@ function viewDocument(id) {
         <div class="detail-section">
             <div class="detail-section-header">
                 <span class="detail-section-title">🔄 流转时间线</span>
-                <span class="detail-section-count">共 ${(doc.flowRecords || []).length} 条</span>
+                <span class="detail-section-count">共 ${flowTimelineCount} 条</span>
             </div>
             ${renderFlowTimeline(doc)}
-        </div>
-        <div class="detail-section">
-            <div class="detail-section-header">
-                <span class="detail-section-title">📢 督办记录</span>
-                <span class="detail-section-count">共 ${supervisionCount} 条</span>
-            </div>
-            ${renderSupervisionRecords(doc)}
         </div>
     `;
 
@@ -4247,7 +4244,8 @@ function processRestoreFile(file) {
                     snoozeUntil: doc.snoozeUntil || '',
                     extendedDeadline: doc.extendedDeadline || '',
                     reminderHistory: Array.isArray(doc.reminderHistory) ? doc.reminderHistory : [],
-                    supervisionRecords: Array.isArray(doc.supervisionRecords) ? doc.supervisionRecords : [],
+                    supervisionRecords: doc.supervisionRecords === undefined ? null :
+                        (Array.isArray(doc.supervisionRecords) ? doc.supervisionRecords : []),
                     isDeleted: doc.isDeleted === true,
                     deletedAt: doc.deletedAt || null,
                     createdAt: doc.createdAt || null
@@ -4514,7 +4512,7 @@ function confirmRestore() {
                 snoozeUntil: item.snoozeUntil || '',
                 extendedDeadline: item.extendedDeadline || '',
                 reminderHistory: item.reminderHistory || [],
-                supervisionRecords: item.supervisionRecords || [],
+                supervisionRecords: Array.isArray(item.supervisionRecords) ? item.supervisionRecords : [],
                 isDeleted: false,
                 deletedAt: null,
                 createdAt: item.createdAt || new Date().toISOString()
@@ -4544,7 +4542,7 @@ function confirmRestore() {
                     flowStatus: flowStatus,
                     processingRecords: item.processingRecords || matchDoc.processingRecords || [],
                     flowRecords: item.flowRecords || matchDoc.flowRecords || [],
-                    supervisionRecords: item.supervisionRecords || matchDoc.supervisionRecords || [],
+                    supervisionRecords: Array.isArray(item.supervisionRecords) ? item.supervisionRecords : (matchDoc.supervisionRecords || []),
                     proposedDepartment: item.proposedDepartment !== undefined ? item.proposedDepartment : (matchDoc.proposedDepartment || ''),
                     undertakingDepartment: item.undertakingDepartment || item.department || matchDoc.undertakingDepartment || matchDoc.department || '',
                     coDepartments: item.coDepartments || matchDoc.coDepartments || [],
@@ -4819,7 +4817,11 @@ function feedbackSupervision(docId, supervisionId, result) {
     saveDocuments(documents);
     addAuditLog(AUDIT_ACTION.SUPERVISION_FEEDBACK, doc, oldDoc, {
         supervisionId: supervisionId,
-        result: result
+        reason: record.reason,
+        supervisor: record.supervisor,
+        feedbackDeadline: record.feedbackDeadline,
+        result: result,
+        feedbackAt: now
     });
 
     updateStats();
@@ -5251,6 +5253,71 @@ function saveSupervisionFeedback(e) {
     }
 }
 
+function getAuditLogExtraSearchText(log) {
+    if (!log.extra) return '';
+    const extra = log.extra;
+    const values = [];
+    if (extra.reason) values.push(extra.reason);
+    if (extra.supervisor) values.push(extra.supervisor);
+    if (extra.feedbackDeadline) values.push(formatDate(extra.feedbackDeadline));
+    if (extra.result) values.push(extra.result);
+    if (extra.feedbackAt) values.push(formatDateTime(extra.feedbackAt));
+    return values.join(' ');
+}
+
+function renderAuditLogExtra(log) {
+    if (!log.extra ||
+        (log.action !== AUDIT_ACTION.SUPERVISION_CREATE && log.action !== AUDIT_ACTION.SUPERVISION_FEEDBACK)) {
+        return '';
+    }
+    const extra = log.extra;
+    const rows = [];
+
+    if (extra.reason) {
+        rows.push(`
+            <div class="audit-extra-row">
+                <span class="audit-extra-label">督办原因：</span>
+                <span class="audit-extra-value">${escapeHtml(extra.reason)}</span>
+            </div>
+        `);
+    }
+    if (extra.supervisor) {
+        rows.push(`
+            <div class="audit-extra-row">
+                <span class="audit-extra-label">督办人：</span>
+                <span class="audit-extra-value">${escapeHtml(extra.supervisor)}</span>
+            </div>
+        `);
+    }
+    if (extra.feedbackDeadline) {
+        rows.push(`
+            <div class="audit-extra-row">
+                <span class="audit-extra-label">要求反馈：</span>
+                <span class="audit-extra-value">${formatDate(extra.feedbackDeadline)}</span>
+            </div>
+        `);
+    }
+    if (extra.result) {
+        rows.push(`
+            <div class="audit-extra-row">
+                <span class="audit-extra-label">处理结果：</span>
+                <span class="audit-extra-value">${escapeHtml(extra.result)}</span>
+            </div>
+        `);
+    }
+    if (extra.feedbackAt) {
+        rows.push(`
+            <div class="audit-extra-row">
+                <span class="audit-extra-label">反馈时间：</span>
+                <span class="audit-extra-value">${formatDateTime(extra.feedbackAt)}</span>
+            </div>
+        `);
+    }
+
+    if (rows.length === 0) return '';
+    return `<div class="audit-log-extra">${rows.join('')}</div>`;
+}
+
 function renderAuditLogList() {
     const logs = getAuditLogs();
     const listEl = document.getElementById('auditLogList');
@@ -5264,7 +5331,8 @@ function renderAuditLogList() {
                    log.docNumber.toLowerCase().includes(kw) ||
                    log.actionText.toLowerCase().includes(kw) ||
                    log.beforeSummary.toLowerCase().includes(kw) ||
-                   log.afterSummary.toLowerCase().includes(kw);
+                   log.afterSummary.toLowerCase().includes(kw) ||
+                   getAuditLogExtraSearchText(log).toLowerCase().includes(kw);
         });
     }
 
@@ -5317,6 +5385,7 @@ function renderAuditLogList() {
                         ${log.docTitle ? escapeHtml(log.docTitle) : '-'}
                         ${log.docNumber ? '<span class="audit-log-doc-number">[' + escapeHtml(log.docNumber) + ']</span>' : ''}
                     </div>
+                    ${renderAuditLogExtra(log)}
                     ${log.changes ? '<div class="audit-log-changes">变更：' + escapeHtml(log.changes) + '</div>' : ''}
                     <div class="audit-log-summary">
                         <div class="audit-log-before">

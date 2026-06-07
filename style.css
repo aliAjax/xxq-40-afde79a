@@ -3996,6 +3996,38 @@ body {
     line-height: 1.5;
 }
 
+.audit-log-extra {
+    font-size: 13px;
+    color: #595959;
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    line-height: 1.5;
+}
+
+.audit-extra-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.audit-extra-row:last-child {
+    margin-bottom: 0;
+}
+
+.audit-extra-label {
+    color: #8c6d1f;
+    flex-shrink: 0;
+}
+
+.audit-extra-value {
+    color: #262626;
+    word-break: break-all;
+}
+
 .audit-log-summary {
     background: #fafafa;
     border-radius: 8px;
