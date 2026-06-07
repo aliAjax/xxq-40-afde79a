@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 #
 # 安装 Git hooks 到本地 .git/hooks 目录
-# 使用方法：在项目根目录运行 ./scripts/install-hooks.sh
+#
+# 使用方法：
+#   ./scripts/install-hooks.sh
+#   npm run install-hooks
 #
 
 set -e
@@ -23,7 +26,6 @@ if [ ! -d "$GIT_HOOKS_DIR" ]; then
     mkdir -p "$GIT_HOOKS_DIR"
 fi
 
-# 需要安装的钩子列表
 hooks=(
     "pre-commit"
 )
@@ -37,11 +39,11 @@ for hook in "${hooks[@]}"; do
 
     if [ ! -f "$source_file" ]; then
         echo -e "  ${YELLOW}⚠ 跳过 $hook：源文件不存在${NC}"
+        skipped=$((skipped + 1))
         continue
     fi
 
     if [ -f "$target_file" ]; then
-        # 检查是否相同
         if diff -q "$source_file" "$target_file" >/dev/null 2>&1; then
             echo -e "  ${GREEN}✓ $hook 已是最新${NC}"
             installed=$((installed + 1))
@@ -61,10 +63,19 @@ done
 echo ""
 echo -e "${GREEN}==> 完成！${NC}"
 echo ""
-echo "  已安装/更新的 hooks: $installed"
+echo "  已安装/更新: $installed 个"
+echo "  跳过: $skipped 个"
 echo ""
-echo -e "${CYAN}提示：${NC}"
-echo "  - 提交时会自动运行代码质量检查"
-echo "  - 如需临时跳过检查，使用：git commit --no-verify"
-echo "  - 如需手动运行检查，使用：git diff --check"
+echo -e "${CYAN}质量门禁（5 项检查）：${NC}"
+echo "  1. JS 语法检查"
+echo "  2. 行尾空格检查"
+echo "  3. 合并冲突标记检查"
+echo "  4. 脚本可执行权限检查"
+echo "  5. 单元测试"
+echo ""
+echo -e "${CYAN}常用命令：${NC}"
+echo "  npm test              # 运行单元测试"
+echo "  npm run check         # 运行全量质量门禁（5 项）"
+echo "  git commit            # 提交时自动运行质量门禁"
+echo "  git commit --no-verify  # 跳过检查（不推荐）"
 echo ""

@@ -4,7 +4,8 @@
   "description": "收文登记管理系统",
   "scripts": {
     "test": "node tests/run-tests.js",
-    "check": "./scripts/check.sh"
+    "check": "bash scripts/check.sh",
+    "install-hooks": "bash scripts/install-hooks.sh"
   },
   "license": "MIT"
 }
