@@ -18,7 +18,12 @@ const AUDIT_ACTION = {
     BATCH_RESTORE_RECYCLE: 'batch_restore_recycle',
     PERMANENT_DELETE: 'permanent_delete',
     BATCH_PERMANENT_DELETE: 'batch_permanent_delete',
-    EMPTY_RECYCLE_BIN: 'empty_recycle_bin'
+    EMPTY_RECYCLE_BIN: 'empty_recycle_bin',
+    FLOW_PROPOSE: 'flow_propose',
+    FLOW_ASSIGN: 'flow_assign',
+    FLOW_PROGRESS: 'flow_progress',
+    FLOW_FEEDBACK: 'flow_feedback',
+    ADD_PROGRESS_RECORD: 'add_progress_record'
 };
 
 const AUDIT_ACTION_TEXT = {
@@ -36,7 +41,12 @@ const AUDIT_ACTION_TEXT = {
     'batch_restore_recycle': '批量恢复',
     'permanent_delete': '彻底删除',
     'batch_permanent_delete': '批量彻底删除',
-    'empty_recycle_bin': '清空回收站'
+    'empty_recycle_bin': '清空回收站',
+    'flow_propose': '拟办',
+    'flow_assign': '交办',
+    'flow_progress': '进展更新',
+    'flow_feedback': '反馈',
+    'add_progress_record': '追加进展'
 };
 
 const FLOW_STATUS = {
@@ -1502,7 +1512,7 @@ function executeBatchAction(e) {
     }
     if (!currentBatchAction) return;
 
-    const documents = getDocuments();
+    const allDocs = loadAllDocuments();
 
     if (currentBatchAction === 'complete') {
         const remarkEl = document.getElementById('batchCompleteRemark');
@@ -1513,8 +1523,8 @@ function executeBatchAction(e) {
         let count = 0;
         const now = new Date().toISOString();
         const completedDocs = [];
-        const updatedDocs = documents.map(function(doc) {
-            if (selectedIds.includes(doc.id) && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
+        const updatedDocs = allDocs.map(function(doc) {
+            if (selectedIds.includes(doc.id) && !doc.isDeleted && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
                 count++;
                 const flowRecord = {
                     id: generateId(),
@@ -1543,15 +1553,13 @@ function executeBatchAction(e) {
             return doc;
         });
         saveDocuments(updatedDocs);
-        if (completedDocs.length > 0) {
-            const sampleDoc = completedDocs[0].newDoc;
-            addAuditLog(AUDIT_ACTION.BATCH_COMPLETE, sampleDoc, null, {
-                count: count,
-                docIds: selectedIds,
+        completedDocs.forEach(function(item) {
+            addAuditLog(AUDIT_ACTION.COMPLETE, item.newDoc, item.oldDoc, {
                 handler: batchHandler,
-                remark: batchRemark
+                remark: batchRemark,
+                fromBatch: true
             });
-        }
+        });
         showToast('成功办结 ' + count + ' 条收文', 'success');
     } else if (currentBatchAction === 'delete') {
         const count = selectedIds.length;
@@ -1560,24 +1568,23 @@ function executeBatchAction(e) {
         const deletedDocs = [];
         const updatedDocs = allDocs.map(function(doc) {
             if (selectedIds.includes(doc.id) && !doc.isDeleted) {
+                const oldDoc = { ...doc };
                 const newDoc = {
                     ...doc,
                     isDeleted: true,
                     deletedAt: now
                 };
-                deletedDocs.push(newDoc);
+                deletedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
                 return newDoc;
             }
             return doc;
         });
         saveDocuments(updatedDocs);
-        if (deletedDocs.length > 0) {
-            const sampleDoc = deletedDocs[0];
-            addAuditLog(AUDIT_ACTION.BATCH_DELETE, sampleDoc, null, {
-                count: count,
-                docIds: selectedIds
+        deletedDocs.forEach(function(item) {
+            addAuditLog(AUDIT_ACTION.DELETE, item.newDoc, item.oldDoc, {
+                fromBatch: true
             });
-        }
+        });
         showToast('成功删除 ' + count + ' 条收文，已移至回收站', 'success');
     } else if (currentBatchAction === 'department') {
         const deptSelectEl = document.getElementById('batchDepartmentSelect');
@@ -1587,28 +1594,28 @@ function executeBatchAction(e) {
             return;
         }
         let count = 0;
-        let sampleDoc = null;
-        const updatedDocs = documents.map(function(doc) {
-            if (selectedIds.includes(doc.id)) {
+        const changedDocs = [];
+        const updatedDocs = allDocs.map(function(doc) {
+            if (selectedIds.includes(doc.id) && !doc.isDeleted) {
                 count++;
+                const oldDoc = { ...doc };
                 const newDoc = {
                     ...doc,
                     undertakingDepartment: newDept,
                     department: newDept
                 };
-                if (!sampleDoc) sampleDoc = newDoc;
+                changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
                 return newDoc;
             }
             return doc;
         });
         saveDocuments(updatedDocs);
-        if (sampleDoc) {
-            addAuditLog(AUDIT_ACTION.BATCH_DEPARTMENT, sampleDoc, null, {
-                count: count,
-                docIds: selectedIds,
+        changedDocs.forEach(function(item) {
+            addAuditLog(AUDIT_ACTION.EDIT, item.newDoc, item.oldDoc, {
+                fromBatch: true,
                 newDepartment: newDept
             });
-        }
+        });
         showToast('成功修改 ' + count + ' 条收文的科室', 'success');
     }
 
@@ -1641,16 +1648,26 @@ function executeBatchDepartment(e) {
         return;
     }
 
-    const documents = getDocuments();
+    const allDocs = loadAllDocuments();
     const count = selectedIds.length;
-    const updatedDocs = documents.map(doc => {
-        if (selectedIds.includes(doc.id)) {
-            return { ...doc, department: newDepartment };
+    const changedDocs = [];
+    const updatedDocs = allDocs.map(doc => {
+        if (selectedIds.includes(doc.id) && !doc.isDeleted) {
+            const oldDoc = { ...doc };
+            const newDoc = { ...doc, department: newDepartment };
+            changedDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
+            return newDoc;
         }
         return doc;
     });
 
     saveDocuments(updatedDocs);
+    changedDocs.forEach(function(item) {
+        addAuditLog(AUDIT_ACTION.EDIT, item.newDoc, item.oldDoc, {
+            fromBatch: true,
+            newDepartment: newDepartment
+        });
+    });
     showToast(`成功修改 ${count} 条收文的承办科室`, 'success');
 
     selectedIds = [];
@@ -1727,13 +1744,14 @@ function updateFilterActiveBadge() {
 }
 
 function addFlowRecord(docId, action, opinion, handler, department, toStatus) {
-    const documents = getDocuments();
-    const index = documents.findIndex(function(d) { return d.id === docId; });
+    const documents = loadAllDocuments();
+    const index = documents.findIndex(function(d) { return d.id === docId && !d.isDeleted; });
     if (index === -1) {
         return { success: false, message: '收文不存在' };
     }
 
     const doc = documents[index];
+    const oldDoc = { ...doc };
     const fromStatus = doc.flowStatus;
     const now = new Date().toISOString();
     const actionText = FLOW_ACTION_TEXT[action] || action;
@@ -1767,6 +1785,22 @@ function addFlowRecord(docId, action, opinion, handler, department, toStatus) {
 
     documents[index] = doc;
     saveDocuments(documents);
+
+    const flowAuditActionMap = {
+        [FLOW_ACTION.PROPOSE]: AUDIT_ACTION.FLOW_PROPOSE,
+        [FLOW_ACTION.ASSIGN]: AUDIT_ACTION.FLOW_ASSIGN,
+        [FLOW_ACTION.PROGRESS]: AUDIT_ACTION.FLOW_PROGRESS,
+        [FLOW_ACTION.FEEDBACK]: AUDIT_ACTION.FLOW_FEEDBACK,
+        [FLOW_ACTION.COMPLETE]: AUDIT_ACTION.COMPLETE
+    };
+    const auditAction = flowAuditActionMap[action];
+    if (auditAction) {
+        addAuditLog(auditAction, doc, oldDoc, {
+            handler: handler || '',
+            opinion: opinion || '',
+            department: department || ''
+        });
+    }
 
     return { success: true, doc: doc };
 }
@@ -2027,8 +2061,8 @@ function executeFlowAction(e) {
 
     if (result.success) {
         if (currentFlowAction.needsDepartment) {
-            const documents = getDocuments();
-            const idx = documents.findIndex(function(d) { return d.id === currentFlowDocId; });
+            const documents = loadAllDocuments();
+            const idx = documents.findIndex(function(d) { return d.id === currentFlowDocId && !d.isDeleted; });
             if (idx !== -1) {
                 const doc = documents[idx];
                 if (currentFlowAction.key === 'propose') {
@@ -2217,10 +2251,10 @@ function saveDocument(e) {
         return;
     }
 
-    const documents = getDocuments();
+    const documents = loadAllDocuments();
 
     if (id) {
-        const index = documents.findIndex(d => d.id === id);
+        const index = documents.findIndex(d => d.id === id && !d.isDeleted);
         if (index !== -1) {
             const oldDoc = documents[index];
             const updatedDoc = { ...oldDoc, ...docData };
@@ -2306,14 +2340,15 @@ function saveProcessingRecord(e) {
         return;
     }
 
-    const documents = getDocuments();
-    const index = documents.findIndex(function(d) { return d.id === docId; });
+    const documents = loadAllDocuments();
+    const index = documents.findIndex(function(d) { return d.id === docId && !d.isDeleted; });
     if (index === -1) {
         showToast('收文不存在', 'error');
         return;
     }
 
     const doc = documents[index];
+    const oldDoc = { ...doc };
     if (!doc.processingRecords) {
         doc.processingRecords = [];
     }
@@ -2329,6 +2364,11 @@ function saveProcessingRecord(e) {
     doc.processingRecords.push(newRecord);
     documents[index] = doc;
     saveDocuments(documents);
+
+    addAuditLog(AUDIT_ACTION.ADD_PROGRESS_RECORD, doc, oldDoc, {
+        handler: handler,
+        content: content
+    });
 
     closeAddRecordModal();
     showToast('办理记录已保存', 'success');
@@ -2362,8 +2402,8 @@ function confirmComplete(e) {
         return;
     }
 
-    const documents = getDocuments();
-    const index = documents.findIndex(function(d) { return d.id === docId; });
+    const documents = loadAllDocuments();
+    const index = documents.findIndex(function(d) { return d.id === docId && !d.isDeleted; });
     if (index === -1) {
         showToast('收文不存在', 'error');
         return;
@@ -2494,29 +2534,29 @@ function batchRestoreDocuments(ids) {
 
     const allDocs = loadAllDocuments();
     let count = 0;
-    let sampleDoc = null;
+    const restoredDocs = [];
 
     const updatedDocs = allDocs.map(function(doc) {
         if (ids.includes(doc.id) && doc.isDeleted) {
             count++;
+            const oldDoc = { ...doc };
             const newDoc = {
                 ...doc,
                 isDeleted: false,
                 deletedAt: null
             };
-            if (!sampleDoc) sampleDoc = newDoc;
+            restoredDocs.push({ oldDoc: oldDoc, newDoc: newDoc });
             return newDoc;
         }
         return doc;
     });
 
     saveDocuments(updatedDocs);
-    if (sampleDoc) {
-        addAuditLog(AUDIT_ACTION.BATCH_RESTORE_RECYCLE, sampleDoc, null, {
-            count: count,
-            docIds: ids
+    restoredDocs.forEach(function(item) {
+        addAuditLog(AUDIT_ACTION.RESTORE_RECYCLE, item.newDoc, item.oldDoc, {
+            fromBatch: true
         });
-    }
+    });
     return count;
 }
 
@@ -2526,17 +2566,16 @@ function batchPermanentDelete(ids) {
 
     const allDocs = loadAllDocuments();
     const toDelete = allDocs.filter(d => ids.includes(d.id));
-    const sampleDoc = toDelete.length > 0 ? toDelete[0] : null;
+
+    toDelete.forEach(function(doc) {
+        addAuditLog(AUDIT_ACTION.PERMANENT_DELETE, doc, null, {
+            fromBatch: true
+        });
+    });
 
     const filtered = allDocs.filter(d => !ids.includes(d.id));
     saveDocuments(filtered);
 
-    if (sampleDoc) {
-        addAuditLog(AUDIT_ACTION.BATCH_PERMANENT_DELETE, sampleDoc, null, {
-            count: ids.length,
-            docIds: ids
-        });
-    }
     return toDelete.length;
 }
 
@@ -2549,13 +2588,14 @@ function emptyRecycleBin() {
 
     if (!confirm('确定要清空回收站吗？所有 ' + recycleDocs.length + ' 条收文将被彻底删除，此操作不可恢复！')) return;
 
-    const sampleDoc = recycleDocs[0];
+    recycleDocs.forEach(function(doc) {
+        addAuditLog(AUDIT_ACTION.PERMANENT_DELETE, doc, null, {
+            fromEmptyRecycle: true
+        });
+    });
+
     const remaining = loadAllDocuments().filter(d => !d.isDeleted);
     saveDocuments(remaining);
-
-    addAuditLog(AUDIT_ACTION.EMPTY_RECYCLE_BIN, sampleDoc, null, {
-        count: recycleDocs.length
-    });
 
     recycleSelectedIds = [];
     showToast('回收站已清空', 'success');
@@ -3010,7 +3050,7 @@ function confirmImport() {
         return;
     }
 
-    const documents = getDocuments();
+    const allDocs = loadAllDocuments();
     const now = new Date().toISOString();
     const newDocs = importValidData.map(function(item) {
         const dept = item.data.undertakingDepartment || item.data.department || '';
@@ -3051,7 +3091,7 @@ function confirmImport() {
         };
     });
 
-    const updatedDocs = newDocs.concat(documents);
+    const updatedDocs = newDocs.concat(allDocs);
     saveDocuments(updatedDocs);
 
     const validCount = importValidData.length;
@@ -3059,9 +3099,10 @@ function confirmImport() {
     const skippedCount = totalCount - validCount;
 
     if (validCount > 0 && newDocs.length > 0) {
-        addAuditLog(AUDIT_ACTION.IMPORT, newDocs[0], null, {
-            count: validCount,
-            skippedCount: skippedCount
+        newDocs.forEach(function(doc) {
+            addAuditLog(AUDIT_ACTION.CREATE, doc, null, {
+                fromImport: true
+            });
         });
     }
 
@@ -3658,8 +3699,8 @@ function setupRestoreFileDragDrop() {
 }
 
 function setReminderNote(docId, note) {
-    const documents = getDocuments();
-    const docIndex = documents.findIndex(d => d.id === docId);
+    const documents = loadAllDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
     documents[docIndex].reminderNote = note;
@@ -3678,8 +3719,8 @@ function setReminderNote(docId, note) {
 }
 
 function extendDeadline(docId, days) {
-    const documents = getDocuments();
-    const docIndex = documents.findIndex(d => d.id === docId);
+    const documents = loadAllDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
     const doc = documents[docIndex];
@@ -3709,8 +3750,8 @@ function extendDeadline(docId, days) {
 }
 
 function snoozeReminder(docId, snoozeDate) {
-    const documents = getDocuments();
-    const docIndex = documents.findIndex(d => d.id === docId);
+    const documents = loadAllDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
     documents[docIndex].snoozeUntil = snoozeDate;
@@ -3729,8 +3770,8 @@ function snoozeReminder(docId, snoozeDate) {
 }
 
 function cancelSnooze(docId) {
-    const documents = getDocuments();
-    const docIndex = documents.findIndex(d => d.id === docId);
+    const documents = loadAllDocuments();
+    const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
     documents[docIndex].snoozeUntil = '';
