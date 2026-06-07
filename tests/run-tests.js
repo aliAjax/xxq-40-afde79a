@@ -6,8 +6,14 @@ const DocUtils = require('../src/utils.js');
 
 const {
     FLOW_STATUS,
+    FLOW_STATUS_TEXT,
     FLOW_ACTION,
     URGENCY_LIST,
+    SUPERVISION_STATUS,
+    SUPERVISION_STATUS_TEXT,
+    BATCH_FLOW_ACTION,
+    BATCH_FLOW_ACTION_TEXT,
+    BATCH_FLOW_ACTION_ICON,
     generateId,
     getDefaultFlowRules,
     getDeadlineDaysByUrgency,
@@ -22,7 +28,22 @@ const {
     shouldShowInReminderCenter,
     filterDocuments,
     hasAdvancedFilter,
-    getDocumentStats
+    getDocumentStats,
+    getDocumentStatus,
+    hasProposeFlowRecord,
+    hasPendingSupervision,
+    getLatestSupervision,
+    get7DaysAgo,
+    getDocProcessingDays,
+    isHighRiskDoc,
+    calcDepartmentStats,
+    applyBoardDrillFilters,
+    applyBoardDrillSorting,
+    canCompleteFromStatus,
+    getAvailableFlowActions,
+    canPerformBatchFlowAction,
+    validateBatchFlowDocuments,
+    getFlowRulesChangesSummary
 } = DocUtils;
 
 let passed = 0;
@@ -1055,7 +1076,537 @@ test('回归 - 已删除文档在 getDocuments 语义下被过滤', () => {
     equal(activeDocs.length, 8);
 });
 
-console.log('\n11. 生产入口回归测试');
+console.log('\n11. 文档状态与流转记录');
+
+test('getDocumentStatus - 有 flowStatus 时直接返回', () => {
+    equal(getDocumentStatus({ flowStatus: FLOW_STATUS.PROCESSING }), FLOW_STATUS.PROCESSING);
+    equal(getDocumentStatus({ flowStatus: FLOW_STATUS.DONE }), FLOW_STATUS.DONE);
+});
+
+test('getDocumentStatus - 无 flowStatus 时默认 PENDING_REVIEW', () => {
+    equal(getDocumentStatus({}), FLOW_STATUS.PENDING_REVIEW);
+    equal(getDocumentStatus({ title: '测试' }), FLOW_STATUS.PENDING_REVIEW);
+});
+
+test('hasProposeFlowRecord - 有拟办记录返回 true', () => {
+    const doc = {
+        flowRecords: [
+            { id: '1', action: FLOW_ACTION.CREATE },
+            { id: '2', action: FLOW_ACTION.PROPOSE }
+        ]
+    };
+    equal(hasProposeFlowRecord(doc), true);
+});
+
+test('hasProposeFlowRecord - 无拟办记录返回 false', () => {
+    const doc = {
+        flowRecords: [
+            { id: '1', action: FLOW_ACTION.CREATE },
+            { id: '2', action: FLOW_ACTION.ASSIGN }
+        ]
+    };
+    equal(hasProposeFlowRecord(doc), false);
+});
+
+test('hasProposeFlowRecord - 无 flowRecords 返回 false', () => {
+    equal(hasProposeFlowRecord({}), false);
+    equal(hasProposeFlowRecord({ flowRecords: [] }), false);
+});
+
+console.log('\n12. 督办相关');
+
+test('SUPERVISION_STATUS 常量定义正确', () => {
+    equal(SUPERVISION_STATUS.PENDING, 'pending');
+    equal(SUPERVISION_STATUS.FEEDBACK, 'feedback');
+});
+
+test('SUPERVISION_STATUS_TEXT 文案正确', () => {
+    equal(SUPERVISION_STATUS_TEXT['pending'], '待反馈');
+    equal(SUPERVISION_STATUS_TEXT['feedback'], '已反馈');
+});
+
+test('hasPendingSupervision - 有待处理督办返回 true', () => {
+    const doc = {
+        supervisionRecords: [
+            { id: '1', status: SUPERVISION_STATUS.PENDING }
+        ]
+    };
+    equal(hasPendingSupervision(doc), true);
+});
+
+test('hasPendingSupervision - 所有督办已反馈返回 false', () => {
+    const doc = {
+        supervisionRecords: [
+            { id: '1', status: SUPERVISION_STATUS.FEEDBACK }
+        ]
+    };
+    equal(hasPendingSupervision(doc), false);
+});
+
+test('hasPendingSupervision - 无督办记录返回 false', () => {
+    equal(hasPendingSupervision({}), false);
+    equal(hasPendingSupervision({ supervisionRecords: [] }), false);
+});
+
+test('getLatestSupervision - 返回最新的督办记录', () => {
+    const doc = {
+        supervisionRecords: [
+            { id: '1', status: SUPERVISION_STATUS.PENDING, createdAt: '2025-01-10T00:00:00Z' },
+            { id: '2', status: SUPERVISION_STATUS.FEEDBACK, createdAt: '2025-01-15T00:00:00Z' }
+        ]
+    };
+    const latest = getLatestSupervision(doc);
+    ok(latest, '应返回最新记录');
+    equal(latest.id, '2');
+    equal(latest.status, SUPERVISION_STATUS.FEEDBACK);
+});
+
+test('getLatestSupervision - 无记录返回 null', () => {
+    equal(getLatestSupervision({}), null);
+    equal(getLatestSupervision({ supervisionRecords: [] }), null);
+});
+
+console.log('\n13. 高风险与办理天数');
+
+const testToday = new Date('2025-01-15');
+testToday.setHours(0, 0, 0, 0);
+
+test('get7DaysAgo - 返回7天前的日期', () => {
+    const result = get7DaysAgo(testToday);
+    equal(result.getFullYear(), 2025);
+    equal(result.getMonth(), 0);
+    equal(result.getDate(), 8);
+});
+
+test('get7DaysAgo - 不传参数时返回日期对象', () => {
+    const result = get7DaysAgo();
+    ok(result instanceof Date, '应返回 Date 对象');
+});
+
+test('getDocProcessingDays - 未办结文档从收文日期到今天', () => {
+    const doc = {
+        receiveDate: '2025-01-10',
+        flowStatus: FLOW_STATUS.PROCESSING
+    };
+    equal(getDocProcessingDays(doc, testToday), 5);
+});
+
+test('getDocProcessingDays - 已办结文档从收文日期到办结日期', () => {
+    const doc = {
+        receiveDate: '2025-01-10',
+        flowStatus: FLOW_STATUS.DONE,
+        completedAt: '2025-01-20T00:00:00Z'
+    };
+    equal(getDocProcessingDays(doc, testToday), 10);
+});
+
+test('getDocProcessingDays - 当天收文返回 0 天', () => {
+    const doc = {
+        receiveDate: '2025-01-15',
+        flowStatus: FLOW_STATUS.PROCESSING
+    };
+    equal(getDocProcessingDays(doc, testToday), 0);
+});
+
+test('isHighRiskDoc - 有待处理督办为高风险', () => {
+    const doc = {
+        flowStatus: FLOW_STATUS.PROCESSING,
+        deadline: '2025-01-20',
+        urgency: '普通',
+        supervisionRecords: [
+            { id: '1', status: SUPERVISION_STATUS.PENDING }
+        ]
+    };
+    equal(isHighRiskDoc(doc, testToday), true);
+});
+
+test('isHighRiskDoc - 逾期且特急为高风险', () => {
+    const doc = {
+        flowStatus: FLOW_STATUS.PROCESSING,
+        deadline: '2025-01-10',
+        urgency: '特急'
+    };
+    equal(isHighRiskDoc(doc, testToday), true);
+});
+
+test('isHighRiskDoc - 逾期但普通不是高风险', () => {
+    const doc = {
+        flowStatus: FLOW_STATUS.PROCESSING,
+        deadline: '2025-01-10',
+        urgency: '普通'
+    };
+    equal(isHighRiskDoc(doc, testToday), false);
+});
+
+test('isHighRiskDoc - 即将到期且特急不是高风险', () => {
+    const doc = {
+        flowStatus: FLOW_STATUS.PROCESSING,
+        deadline: '2025-01-17',
+        urgency: '特急'
+    };
+    equal(isHighRiskDoc(doc, testToday), false);
+});
+
+test('isHighRiskDoc - 已办结文档不是高风险', () => {
+    const doc = {
+        flowStatus: FLOW_STATUS.DONE,
+        deadline: '2025-01-10',
+        urgency: '特急'
+    };
+    equal(isHighRiskDoc(doc, testToday), false);
+});
+
+console.log('\n14. 科室统计（calcDepartmentStats）');
+
+function makeTestDoc(overrides) {
+    return {
+        id: generateId(),
+        title: '测试收文',
+        docNumber: 'SW-001',
+        fromUnit: '测试单位',
+        department: '办公室',
+        undertakingDepartment: '办公室',
+        flowStatus: FLOW_STATUS.PROCESSING,
+        urgency: '普通',
+        receiveDate: '2025-01-10',
+        deadline: '2025-01-20',
+        createdAt: '2025-01-10T00:00:00Z',
+        ...overrides
+    };
+}
+
+test('calcDepartmentStats - 按科室统计各状态数量', () => {
+    const docs = [
+        makeTestDoc({ undertakingDepartment: '办公室', flowStatus: FLOW_STATUS.PENDING_REVIEW }),
+        makeTestDoc({ undertakingDepartment: '办公室', flowStatus: FLOW_STATUS.PROCESSING }),
+        makeTestDoc({ undertakingDepartment: '业务一科', flowStatus: FLOW_STATUS.PROCESSING }),
+        makeTestDoc({ undertakingDepartment: '业务一科', flowStatus: FLOW_STATUS.DONE }),
+        makeTestDoc({ undertakingDepartment: '业务一科', flowStatus: FLOW_STATUS.PENDING_FEEDBACK })
+    ];
+    const deptNames = ['办公室', '业务一科'];
+    const stats = calcDepartmentStats(docs, deptNames, testToday);
+
+    equal(stats['办公室'].total, 2);
+    equal(stats['办公室'].pending_review, 1);
+    equal(stats['办公室'].processing, 1);
+    equal(stats['业务一科'].total, 3);
+    equal(stats['业务一科'].processing, 1);
+    equal(stats['业务一科'].pending_feedback, 1);
+    equal(stats['业务一科'].done, 1);
+});
+
+test('calcDepartmentStats - 统计逾期和即将到期数量', () => {
+    const docs = [
+        makeTestDoc({ undertakingDepartment: '办公室', deadline: '2025-01-20', flowStatus: FLOW_STATUS.PROCESSING }),
+        makeTestDoc({ undertakingDepartment: '办公室', deadline: '2025-01-17', flowStatus: FLOW_STATUS.PROCESSING }),
+        makeTestDoc({ undertakingDepartment: '办公室', deadline: '2025-01-10', flowStatus: FLOW_STATUS.PROCESSING })
+    ];
+    const stats = calcDepartmentStats(docs, ['办公室'], testToday);
+
+    equal(stats['办公室'].total, 3);
+    equal(stats['办公室'].urgent, 1);
+    equal(stats['办公室'].overdue, 1);
+});
+
+test('calcDepartmentStats - 计算逾期率和平均办理天数', () => {
+    const docs = [
+        makeTestDoc({ undertakingDepartment: '业务一科', deadline: '2025-01-10', flowStatus: FLOW_STATUS.PROCESSING, receiveDate: '2025-01-05' }),
+        makeTestDoc({ undertakingDepartment: '业务一科', deadline: '2025-01-20', flowStatus: FLOW_STATUS.PROCESSING, receiveDate: '2025-01-01' }),
+        makeTestDoc({ undertakingDepartment: '业务一科', deadline: '2025-01-25', flowStatus: FLOW_STATUS.PROCESSING, receiveDate: '2025-01-10' })
+    ];
+    const stats = calcDepartmentStats(docs, ['业务一科'], testToday);
+
+    equal(stats['业务一科'].overdueRate, 33);
+    ok(typeof stats['业务一科'].avgProcessingDays === 'number', 'avgProcessingDays 应为数字');
+    ok(stats['业务一科'].avgProcessingDays > 0, '平均办理天数应大于 0');
+});
+
+test('calcDepartmentStats - 统计高风险收文数量', () => {
+    const docs = [
+        makeTestDoc({
+            undertakingDepartment: '办公室',
+            deadline: '2025-01-10',
+            urgency: '特急',
+            flowStatus: FLOW_STATUS.PROCESSING
+        }),
+        makeTestDoc({
+            undertakingDepartment: '办公室',
+            deadline: '2025-01-20',
+            urgency: '普通',
+            flowStatus: FLOW_STATUS.PROCESSING,
+            supervisionRecords: [{ id: '1', status: SUPERVISION_STATUS.PENDING }]
+        }),
+        makeTestDoc({
+            undertakingDepartment: '办公室',
+            deadline: '2025-01-20',
+            urgency: '普通',
+            flowStatus: FLOW_STATUS.PROCESSING
+        })
+    ];
+    const stats = calcDepartmentStats(docs, ['办公室'], testToday);
+
+    equal(stats['办公室'].highRiskCount, 2);
+});
+
+test('calcDepartmentStats - 近7天新增统计', () => {
+    const docs = [
+        makeTestDoc({ undertakingDepartment: '办公室', createdAt: '2025-01-14T00:00:00Z' }),
+        makeTestDoc({ undertakingDepartment: '办公室', createdAt: '2025-01-10T00:00:00Z' }),
+        makeTestDoc({ undertakingDepartment: '办公室', createdAt: '2025-01-01T00:00:00Z' })
+    ];
+    const stats = calcDepartmentStats(docs, ['办公室'], testToday);
+
+    equal(stats['办公室'].recent7DaysNew, 2);
+});
+
+test('calcDepartmentStats - 空科室列表但有文档时会自动统计文档中的科室', () => {
+    const docs = [makeTestDoc({ undertakingDepartment: '办公室' })];
+    const stats = calcDepartmentStats(docs, [], testToday);
+    equal(stats['办公室'].total, 1);
+});
+
+test('calcDepartmentStats - 科室无数据时统计项为0', () => {
+    const stats = calcDepartmentStats([], ['办公室', '业务一科'], testToday);
+    equal(stats['办公室'].total, 0);
+    equal(stats['办公室'].pending_review, 0);
+    equal(stats['办公室'].overdueRate, 0);
+    equal(stats['办公室'].avgProcessingDays, 0);
+    equal(stats['业务一科'].total, 0);
+});
+
+console.log('\n15. 看板钻取筛选与排序');
+
+test('applyBoardDrillFilters - 无钻取上下文返回原数组', () => {
+    const docs = [makeTestDoc(), makeTestDoc()];
+    const result = applyBoardDrillFilters(docs, null, testToday);
+    equal(result.length, 2);
+});
+
+test('applyBoardDrillFilters - 仅逾期筛选', () => {
+    const docs = [
+        makeTestDoc({ deadline: '2025-01-10', flowStatus: FLOW_STATUS.PROCESSING, title: '逾期' }),
+        makeTestDoc({ deadline: '2025-01-20', flowStatus: FLOW_STATUS.PROCESSING, title: '正常' })
+    ];
+    const context = { overdueOnly: true };
+    const result = applyBoardDrillFilters(docs, context, testToday);
+    equal(result.length, 1);
+    equal(result[0].title, '逾期');
+});
+
+test('applyBoardDrillFilters - 仅近7天新增筛选', () => {
+    const docs = [
+        makeTestDoc({ createdAt: '2025-01-14T00:00:00Z', title: '近期' }),
+        makeTestDoc({ createdAt: '2025-01-01T00:00:00Z', title: '远期' })
+    ];
+    const context = { recent7DaysOnly: true };
+    const result = applyBoardDrillFilters(docs, context, testToday);
+    equal(result.length, 1);
+    equal(result[0].title, '近期');
+});
+
+test('applyBoardDrillFilters - 仅高风险筛选', () => {
+    const docs = [
+        makeTestDoc({
+            deadline: '2025-01-10',
+            urgency: '特急',
+            flowStatus: FLOW_STATUS.PROCESSING,
+            title: '高风险'
+        }),
+        makeTestDoc({
+            deadline: '2025-01-20',
+            urgency: '普通',
+            flowStatus: FLOW_STATUS.PROCESSING,
+            title: '低风险'
+        })
+    ];
+    const context = { highRiskOnly: true };
+    const result = applyBoardDrillFilters(docs, context, testToday);
+    equal(result.length, 1);
+    equal(result[0].title, '高风险');
+});
+
+test('applyBoardDrillSorting - 无排序上下文返回原数组', () => {
+    const docs = [makeTestDoc({ title: 'A' }), makeTestDoc({ title: 'B' })];
+    const result = applyBoardDrillSorting(docs, null);
+    equal(result.length, 2);
+});
+
+test('applyBoardDrillSorting - 按办理天数降序排序', () => {
+    const docs = [
+        makeTestDoc({ receiveDate: '2025-01-14', title: '天数少' }),
+        makeTestDoc({ receiveDate: '2025-01-01', title: '天数多' })
+    ];
+    const context = { sortByProcessingDays: true };
+    const result = applyBoardDrillSorting(docs, context);
+    equal(result.length, 2);
+    equal(result[0].title, '天数多');
+    equal(result[1].title, '天数少');
+});
+
+console.log('\n16. 流转动作与批量流转校验');
+
+test('BATCH_FLOW_ACTION 常量定义正确', () => {
+    equal(BATCH_FLOW_ACTION.PROPOSE, 'propose');
+    equal(BATCH_FLOW_ACTION.TRANSFER, 'transfer');
+    equal(BATCH_FLOW_ACTION.ASSIGN_CO, 'assign_co');
+    equal(BATCH_FLOW_ACTION.FEEDBACK, 'feedback');
+    equal(BATCH_FLOW_ACTION.SUPERVISION, 'supervision');
+});
+
+test('BATCH_FLOW_ACTION_TEXT 文案正确', () => {
+    equal(BATCH_FLOW_ACTION_TEXT['propose'], '批量拟办');
+    equal(BATCH_FLOW_ACTION_TEXT['transfer'], '批量转办');
+    equal(BATCH_FLOW_ACTION_TEXT['assign_co'], '批量指定协办');
+    equal(BATCH_FLOW_ACTION_TEXT['feedback'], '批量反馈');
+    equal(BATCH_FLOW_ACTION_TEXT['supervision'], '批量督办');
+});
+
+test('canCompleteFromStatus - 默认规则下 pending_feedback 可办结', () => {
+    const rules = getDefaultFlowRules();
+    equal(canCompleteFromStatus(FLOW_STATUS.PENDING_FEEDBACK, rules), true);
+});
+
+test('canCompleteFromStatus - 默认规则下 processing 不可办结', () => {
+    const rules = getDefaultFlowRules();
+    equal(canCompleteFromStatus(FLOW_STATUS.PROCESSING, rules), false);
+});
+
+test('canCompleteFromStatus - 自定义规则可修改可办结状态', () => {
+    const customRules = {
+        ...getDefaultFlowRules(),
+        completableStatuses: [FLOW_STATUS.PROCESSING, FLOW_STATUS.PENDING_FEEDBACK]
+    };
+    equal(canCompleteFromStatus(FLOW_STATUS.PROCESSING, customRules), true);
+    equal(canCompleteFromStatus(FLOW_STATUS.PENDING_FEEDBACK, customRules), true);
+});
+
+test('getAvailableFlowActions - 待拟办状态有拟办和交办动作', () => {
+    const doc = { flowStatus: FLOW_STATUS.PENDING_REVIEW, flowRecords: [] };
+    const actions = getAvailableFlowActions(doc);
+    ok(actions.some(a => a.key === 'propose'), '应有拟办动作');
+    ok(actions.some(a => a.key === 'assign'), '应有交办动作');
+});
+
+test('getAvailableFlowActions - 办理中状态有进展更新和申请反馈', () => {
+    const doc = { flowStatus: FLOW_STATUS.PROCESSING, flowRecords: [] };
+    const actions = getAvailableFlowActions(doc);
+    ok(actions.some(a => a.key === 'progress'), '应有进展更新动作');
+    ok(actions.some(a => a.key === 'feedback'), '应有申请反馈动作');
+});
+
+test('getAvailableFlowActions - 已办结状态无可用动作', () => {
+    const doc = { flowStatus: FLOW_STATUS.DONE, flowRecords: [] };
+    const actions = getAvailableFlowActions(doc);
+    equal(actions.length, 0);
+});
+
+test('canPerformBatchFlowAction - 已办结不能拟办', () => {
+    const doc = { flowStatus: FLOW_STATUS.DONE, isDeleted: false };
+    const result = canPerformBatchFlowAction(doc, BATCH_FLOW_ACTION.PROPOSE);
+    equal(result.valid, false);
+    equal(result.reason, '已办结的收文不能拟办');
+});
+
+test('canPerformBatchFlowAction - 未办结可以拟办', () => {
+    const doc = { flowStatus: FLOW_STATUS.PROCESSING, isDeleted: false };
+    const result = canPerformBatchFlowAction(doc, BATCH_FLOW_ACTION.PROPOSE);
+    equal(result.valid, true);
+});
+
+test('canPerformBatchFlowAction - 需先拟办才能转办（规则开启时）', () => {
+    const rules = {
+        ...getDefaultFlowRules(),
+        requireProposeBeforeAssign: true
+    };
+    const doc = { flowStatus: FLOW_STATUS.PROCESSING, isDeleted: false, flowRecords: [] };
+    const result = canPerformBatchFlowAction(doc, BATCH_FLOW_ACTION.TRANSFER, rules);
+    equal(result.valid, false);
+    equal(result.reason, '需先拟办才能转办');
+});
+
+test('canPerformBatchFlowAction - 有拟办记录可以转办', () => {
+    const rules = {
+        ...getDefaultFlowRules(),
+        requireProposeBeforeAssign: true
+    };
+    const doc = {
+        flowStatus: FLOW_STATUS.PROCESSING,
+        isDeleted: false,
+        flowRecords: [{ action: FLOW_ACTION.PROPOSE }]
+    };
+    const result = canPerformBatchFlowAction(doc, BATCH_FLOW_ACTION.TRANSFER, rules);
+    equal(result.valid, true);
+});
+
+test('canPerformBatchFlowAction - 仅办理中可以申请反馈', () => {
+    const doc1 = { flowStatus: FLOW_STATUS.PROCESSING, isDeleted: false };
+    const doc2 = { flowStatus: FLOW_STATUS.PENDING_FEEDBACK, isDeleted: false };
+    const result1 = canPerformBatchFlowAction(doc1, BATCH_FLOW_ACTION.FEEDBACK);
+    const result2 = canPerformBatchFlowAction(doc2, BATCH_FLOW_ACTION.FEEDBACK);
+    equal(result1.valid, true);
+    equal(result2.valid, false);
+});
+
+test('canPerformBatchFlowAction - 已删除文档不能操作', () => {
+    const doc = { flowStatus: FLOW_STATUS.PROCESSING, isDeleted: true };
+    const result = canPerformBatchFlowAction(doc, BATCH_FLOW_ACTION.PROPOSE);
+    equal(result.valid, false);
+    equal(result.reason, '收文不存在或已删除');
+});
+
+test('validateBatchFlowDocuments - 正确分类有效和跳过的文档', () => {
+    const docs = [
+        { id: '1', flowStatus: FLOW_STATUS.PROCESSING, isDeleted: false, title: '有效1' },
+        { id: '2', flowStatus: FLOW_STATUS.DONE, isDeleted: false, title: '跳过1' },
+        { id: '3', flowStatus: FLOW_STATUS.PENDING_REVIEW, isDeleted: false, title: '有效2' }
+    ];
+    const result = validateBatchFlowDocuments(docs, BATCH_FLOW_ACTION.PROPOSE);
+    equal(result.valid.length, 2);
+    equal(result.skipped.length, 1);
+    equal(result.skipped[0].doc.title, '跳过1');
+    equal(result.skipped[0].reason, '已办结的收文不能拟办');
+});
+
+console.log('\n17. 规则变更摘要');
+
+test('getFlowRulesChangesSummary - 无变更返回空数组', () => {
+    const rules = getDefaultFlowRules();
+    const changes = getFlowRulesChangesSummary(rules, rules);
+    deepEqual(changes, []);
+});
+
+test('getFlowRulesChangesSummary - 紧急程度天数变更', () => {
+    const oldRules = getDefaultFlowRules();
+    const newRules = {
+        ...getDefaultFlowRules(),
+        urgencyDeadlineDays: {
+            '普通': 10,
+            '加急': 5,
+            '特急': 2
+        }
+    };
+    const changes = getFlowRulesChangesSummary(oldRules, newRules);
+    ok(changes.length > 0, '应有变更项');
+    ok(changes.some(c => c.includes('普通')), '应包含普通天数变更');
+    ok(changes.some(c => c.includes('加急')), '应包含加急天数变更');
+    ok(changes.some(c => c.includes('特急')), '应包含特急天数变更');
+});
+
+test('getFlowRulesChangesSummary - 必须先拟办变更', () => {
+    const oldRules = { ...getDefaultFlowRules(), requireProposeBeforeAssign: false };
+    const newRules = { ...getDefaultFlowRules(), requireProposeBeforeAssign: true };
+    const changes = getFlowRulesChangesSummary(oldRules, newRules);
+    ok(changes.some(c => c.includes('必须先拟办再交办')), '应包含先拟办再交办变更');
+});
+
+test('getFlowRulesChangesSummary - 允许办结状态变更', () => {
+    const oldRules = { ...getDefaultFlowRules(), completableStatuses: [FLOW_STATUS.PENDING_FEEDBACK] };
+    const newRules = { ...getDefaultFlowRules(), completableStatuses: [FLOW_STATUS.PROCESSING, FLOW_STATUS.PENDING_FEEDBACK] };
+    const changes = getFlowRulesChangesSummary(oldRules, newRules);
+    ok(changes.some(c => c.includes('允许办结状态')), '应包含允许办结状态变更');
+});
+
+console.log('\n18. 生产入口回归测试');
 
 function createProductionHarness(initialStore) {
     const store = { ...(initialStore || {}) };

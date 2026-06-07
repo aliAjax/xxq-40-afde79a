@@ -875,7 +875,7 @@ function getDeadlineDaysByUrgency(urgency) {
 
 function canCompleteFromStatus(status) {
     const rules = getFlowRules();
-    return rules.completableStatuses.includes(status);
+    return DocUtils.canCompleteFromStatus(status, rules);
 }
 
 function isProposeRequiredBeforeAssign() {
@@ -884,28 +884,7 @@ function isProposeRequiredBeforeAssign() {
 }
 
 function getFlowRulesChangesSummary(oldRules, newRules) {
-    const changes = [];
-
-    URGENCY_LIST.forEach(function(urgency) {
-        const oldDays = oldRules.urgencyDeadlineDays[urgency];
-        const newDays = newRules.urgencyDeadlineDays[urgency];
-        if (oldDays !== newDays) {
-            changes.push(urgency + '办理天数：' + oldDays + '天 → ' + newDays + '天');
-        }
-    });
-
-    const oldRequire = oldRules.requireProposeBeforeAssign ? '是' : '否';
-    const newRequire = newRules.requireProposeBeforeAssign ? '是' : '否';
-    if (oldRequire !== newRequire) {
-        changes.push('必须先拟办再交办：' + oldRequire + ' → ' + newRequire);
-    }
-
-    const oldCompletable = (oldRules.completableStatuses || []).map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
-    const newCompletable = (newRules.completableStatuses || []).map(function(s) { return FLOW_STATUS_TEXT[s] || s; }).join('、');
-    if (oldCompletable !== newCompletable) {
-        changes.push('允许办结状态：' + oldCompletable + ' → ' + newCompletable);
-    }
-
+    const changes = DocUtils.getFlowRulesChangesSummary(oldRules, newRules);
     if (changes.length === 0) return '无变更';
     return changes.join('；');
 }
@@ -2571,7 +2550,7 @@ function getDeadlineStatus(doc, today) {
 }
 
 function getDocumentStatus(doc) {
-    return doc.flowStatus || FLOW_STATUS.PENDING_REVIEW;
+    return DocUtils.getDocumentStatus(doc);
 }
 
 function getFlowStatusText(status) {
@@ -2660,131 +2639,22 @@ function updateStats() {
 }
 
 function isHighRiskDoc(doc) {
-    const deadlineStatus = getDeadlineStatus(doc);
-    const hasPendingSup = hasPendingSupervision(doc);
-    if (hasPendingSup) return true;
-    if (deadlineStatus === 'overdue' && doc.urgency === '特急') return true;
-    return false;
+    return DocUtils.isHighRiskDoc(doc);
 }
 
 function getDocProcessingDays(doc) {
-    const receiveDate = new Date(doc.receiveDate);
-    receiveDate.setHours(0, 0, 0, 0);
-    let endDate;
-    if (doc.flowStatus === FLOW_STATUS.DONE && doc.completedAt) {
-        endDate = new Date(doc.completedAt);
-    } else {
-        endDate = new Date();
-    }
-    endDate.setHours(0, 0, 0, 0);
-    const diffTime = endDate - receiveDate;
-    const diffDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
-    return diffDays;
+    return DocUtils.getDocProcessingDays(doc);
 }
 
 function get7DaysAgo() {
-    const date = new Date();
-    date.setDate(date.getDate() - 7);
-    date.setHours(0, 0, 0, 0);
-    return date;
+    return DocUtils.get7DaysAgo();
 }
 
 function getDepartmentStats() {
     const documents = getDocuments();
     const filteredDocs = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
-    const stats = {};
-    const sevenDaysAgo = get7DaysAgo();
-
     const allDeptNames = getAllDepartmentNames();
-    allDeptNames.forEach(dept => {
-        stats[dept] = {
-            pending_review: 0,
-            processing: 0,
-            pending_feedback: 0,
-            urgent: 0,
-            overdue: 0,
-            done: 0,
-            total: 0,
-            recent7DaysNew: 0,
-            overdueRate: 0,
-            avgProcessingDays: 0,
-            highRiskCount: 0,
-            _processingDaysTotal: 0,
-            _processingDaysCount: 0
-        };
-    });
-
-    filteredDocs.forEach(doc => {
-        const dept = doc.undertakingDepartment || doc.department || '';
-        if (!dept) return;
-
-        if (!stats[dept]) {
-            stats[dept] = {
-                pending_review: 0,
-                processing: 0,
-                pending_feedback: 0,
-                urgent: 0,
-                overdue: 0,
-                done: 0,
-                total: 0,
-                recent7DaysNew: 0,
-                overdueRate: 0,
-                avgProcessingDays: 0,
-                highRiskCount: 0,
-                _processingDaysTotal: 0,
-                _processingDaysCount: 0
-            };
-        }
-
-        const flowStatus = getDocumentStatus(doc);
-        const deadlineStatus = getDeadlineStatus(doc);
-
-        stats[dept].total++;
-
-        if (flowStatus === FLOW_STATUS.PENDING_REVIEW) {
-            stats[dept].pending_review++;
-        } else if (flowStatus === FLOW_STATUS.PROCESSING) {
-            stats[dept].processing++;
-        } else if (flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
-            stats[dept].pending_feedback++;
-        } else if (flowStatus === FLOW_STATUS.DONE) {
-            stats[dept].done++;
-        }
-
-        if (deadlineStatus === 'urgent') {
-            stats[dept].urgent++;
-        } else if (deadlineStatus === 'overdue') {
-            stats[dept].overdue++;
-        }
-
-        const createdAt = new Date(doc.createdAt || doc.receiveDate);
-        if (createdAt >= sevenDaysAgo) {
-            stats[dept].recent7DaysNew++;
-        }
-
-        if (isHighRiskDoc(doc)) {
-            stats[dept].highRiskCount++;
-        }
-
-        if (doc.receiveDate) {
-            const days = getDocProcessingDays(doc);
-            stats[dept]._processingDaysTotal += days;
-            stats[dept]._processingDaysCount++;
-        }
-    });
-
-    const allDeptNames2 = getAllDepartmentNames();
-    allDeptNames2.forEach(dept => {
-        if (stats[dept]) {
-            const s = stats[dept];
-            s.overdueRate = s.total > 0 ? Math.round(s.overdue / s.total * 100) : 0;
-            s.avgProcessingDays = s._processingDaysCount > 0 ? Math.round(s._processingDaysTotal / s._processingDaysCount * 10) / 10 : 0;
-            delete s._processingDaysTotal;
-            delete s._processingDaysCount;
-        }
-    });
-
-    return stats;
+    return DocUtils.calcDepartmentStats(filteredDocs, allDeptNames);
 }
 
 let boardDrillContext = null;
@@ -3047,42 +2917,11 @@ function isDrillFilterActive() {
 }
 
 function applyDrillFilters(docs) {
-    if (!boardDrillContext) return docs;
-
-    let filtered = docs;
-
-    if (boardDrillContext.overdueOnly) {
-        filtered = filtered.filter(doc => {
-            const deadlineStatus = getDeadlineStatus(doc);
-            return deadlineStatus === 'overdue';
-        });
-    }
-
-    if (boardDrillContext.recent7DaysOnly) {
-        const sevenDaysAgo = get7DaysAgo();
-        filtered = filtered.filter(doc => {
-            const createdAt = new Date(doc.createdAt || doc.receiveDate);
-            return createdAt >= sevenDaysAgo;
-        });
-    }
-
-    if (boardDrillContext.highRiskOnly) {
-        filtered = filtered.filter(doc => isHighRiskDoc(doc));
-    }
-
-    return filtered;
+    return DocUtils.applyBoardDrillFilters(docs, boardDrillContext);
 }
 
 function applyDrillSorting(docs) {
-    if (!boardDrillContext || !boardDrillContext.sortByProcessingDays) return docs;
-
-    const sorted = docs.slice().sort(function(a, b) {
-        const daysA = getDocProcessingDays(a);
-        const daysB = getDocProcessingDays(b);
-        return daysB - daysA;
-    });
-
-    return sorted;
+    return DocUtils.applyBoardDrillSorting(docs, boardDrillContext);
 }
 
 function clearDrillSpecialFilters() {
@@ -4761,144 +4600,22 @@ function addFlowRecord(docId, action, opinion, handler, department, toStatus, co
 }
 
 function hasProposeFlowRecord(doc) {
-    return Array.isArray(doc.flowRecords) && doc.flowRecords.some(function(record) {
-        return record.action === FLOW_ACTION.PROPOSE;
-    });
+    return DocUtils.hasProposeFlowRecord(doc);
 }
 
 function getAvailableFlowActions(doc) {
-    const status = doc.flowStatus;
-    const actions = [];
-    const requirePropose = isProposeRequiredBeforeAssign();
-    const hasProposeRecord = hasProposeFlowRecord(doc);
-
-    if (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING) {
-        if (!hasProposeRecord || status === FLOW_STATUS.PENDING_REVIEW) {
-            actions.push({
-                key: 'propose',
-                label: hasProposeRecord ? '重新拟办' : '拟办',
-                icon: '💡',
-                description: hasProposeRecord ? '修改拟办科室和处理意见' : '指定拟办科室和处理意见',
-                toStatus: status === FLOW_STATUS.PENDING_REVIEW ? FLOW_STATUS.PROCESSING : null,
-                needsDepartment: true,
-                departmentLabel: '拟办科室'
-            });
-        }
-    }
-
-    const canAssign = !requirePropose || hasProposeRecord;
-    if (canAssign && (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING)) {
-        actions.push({
-            key: 'assign',
-            label: '交办',
-            icon: '📤',
-            description: '交办给承办科室办理',
-            toStatus: FLOW_STATUS.PROCESSING,
-            needsDepartment: true,
-            departmentLabel: '承办科室'
-        });
-    }
-
-    if (status === FLOW_STATUS.PROCESSING || status === FLOW_STATUS.PENDING_FEEDBACK) {
-        actions.push({
-            key: 'progress',
-            label: '进展更新',
-            icon: '🔄',
-            description: '记录办理进展，状态不变',
-            toStatus: null,
-            needsDepartment: false
-        });
-    }
-
-    if (status === FLOW_STATUS.PROCESSING) {
-        actions.push({
-            key: 'feedback',
-            label: '申请反馈',
-            icon: '📥',
-            description: '提交反馈，等待审核',
-            toStatus: FLOW_STATUS.PENDING_FEEDBACK,
-            needsDepartment: false
-        });
-    }
-
-    if (canCompleteFromStatus(status)) {
-        actions.push({
-            key: 'complete',
-            label: '办结',
-            icon: '✅',
-            description: '审核通过，办结收文',
-            toStatus: FLOW_STATUS.DONE,
-            needsDepartment: false
-        });
-    }
-
-    return actions;
+    const rules = getFlowRules();
+    return DocUtils.getAvailableFlowActions(doc, rules);
 }
 
 function canPerformBatchFlowAction(doc, action) {
-    if (!doc || doc.isDeleted) return { valid: false, reason: '收文不存在或已删除' };
-
-    const status = doc.flowStatus;
-    const requirePropose = isProposeRequiredBeforeAssign();
-    const hasProposeRecord = hasProposeFlowRecord(doc);
-
-    switch (action) {
-        case BATCH_FLOW_ACTION.PROPOSE:
-            if (status === FLOW_STATUS.DONE) {
-                return { valid: false, reason: '已办结的收文不能拟办' };
-            }
-            return { valid: true };
-
-        case BATCH_FLOW_ACTION.TRANSFER:
-            if (status === FLOW_STATUS.DONE) {
-                return { valid: false, reason: '已办结的收文不能转办' };
-            }
-            if (requirePropose && !hasProposeRecord) {
-                return { valid: false, reason: '需先拟办才能转办' };
-            }
-            return { valid: true };
-
-        case BATCH_FLOW_ACTION.ASSIGN_CO:
-            if (status === FLOW_STATUS.DONE) {
-                return { valid: false, reason: '已办结的收文不能指定协办' };
-            }
-            return { valid: true };
-
-        case BATCH_FLOW_ACTION.FEEDBACK:
-            if (status !== FLOW_STATUS.PROCESSING) {
-                return { valid: false, reason: '仅办理中的收文可以申请反馈' };
-            }
-            return { valid: true };
-
-        case BATCH_FLOW_ACTION.SUPERVISION:
-            if (status === FLOW_STATUS.DONE) {
-                return { valid: false, reason: '已办结的收文不能发起督办' };
-            }
-            const deadlineStatus = getDeadlineStatus(doc);
-            if (deadlineStatus !== 'overdue' && deadlineStatus !== 'urgent') {
-                return { valid: false, reason: '仅逾期或即将到期的收文可发起督办' };
-            }
-            return { valid: true };
-
-        default:
-            return { valid: false, reason: '未知操作类型' };
-    }
+    const rules = getFlowRules();
+    return DocUtils.canPerformBatchFlowAction(doc, action, rules);
 }
 
 function validateBatchFlowDocuments(docs, action) {
-    const valid = [];
-    const skipped = [];
-
-    docs.forEach(function(doc) {
-        const result = canPerformBatchFlowAction(doc, action);
-        if (result.valid) {
-            valid.push(doc);
-        } else {
-            skipped.push({ doc: doc, reason: result.reason });
-        }
-    });
-
-    return { valid: valid, skipped: skipped };
+    const rules = getFlowRules();
+    return DocUtils.validateBatchFlowDocuments(docs, action, rules);
 }
 
 let currentFlowDocId = null;
@@ -8438,22 +8155,11 @@ function cancelSnooze(docId) {
 }
 
 function hasPendingSupervision(doc) {
-    if (!doc.supervisionRecords || doc.supervisionRecords.length === 0) {
-        return false;
-    }
-    return doc.supervisionRecords.some(function(record) {
-        return record.status === SUPERVISION_STATUS.PENDING;
-    });
+    return DocUtils.hasPendingSupervision(doc);
 }
 
 function getLatestSupervision(doc) {
-    if (!doc.supervisionRecords || doc.supervisionRecords.length === 0) {
-        return null;
-    }
-    const sorted = doc.supervisionRecords.slice().sort(function(a, b) {
-        return new Date(b.createdAt) - new Date(a.createdAt);
-    });
-    return sorted[0];
+    return DocUtils.getLatestSupervision(doc);
 }
 
 function createSupervision(docId, reason, supervisor, feedbackDeadline) {
