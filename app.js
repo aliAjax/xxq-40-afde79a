@@ -4035,8 +4035,12 @@ function openImportModal() {
     document.getElementById('importFileInput').value = '';
     document.getElementById('selectedFileName').style.display = 'none';
 
+    const skipDupRadio = document.querySelector('input[name="importMode"][value="skip_duplicate"]');
+    if (skipDupRadio) skipDupRadio.checked = true;
+
     switchImportTab('paste');
     updateWizardSteps();
+    renderWizardStepContent();
     updateWizardNavButtons();
     document.getElementById('importModal').classList.add('show');
 }
@@ -4709,14 +4713,17 @@ function updateImportConfirmSummary() {
     let overwriteCount = 0;
     let skipCount = 0;
 
-    if (importMode === 'valid_only') {
-        importableCount = validCount + warningCount;
-        skipCount = invalidCount;
+    const allValidCount = validCount + warningCount;
+    const duplicateCount = wizardValidatedData.filter(function(r) {
+        return r.valid && r.warnings.some(function(w) { return w.indexOf('与现有数据文号重复') >= 0; });
+    }).length;
+
+    if (importMode === 'skip_duplicate') {
+        importableCount = allValidCount - duplicateCount;
+        skipCount = invalidCount + duplicateCount;
     } else if (importMode === 'overwrite') {
-        importableCount = validCount + warningCount;
-        overwriteCount = wizardValidatedData.filter(function(r) {
-            return r.valid && r.warnings.some(function(w) { return w.indexOf('与现有数据文号重复') >= 0; });
-        }).length;
+        importableCount = allValidCount;
+        overwriteCount = duplicateCount;
         skipCount = invalidCount;
     }
 

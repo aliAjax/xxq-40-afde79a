@@ -861,11 +861,11 @@
                             <div class="import-options-title">导入选项</div>
                             <div class="import-options-list">
                                 <label class="import-option-item">
-                                    <input type="radio" name="importMode" value="valid_only" checked onchange="updateImportConfirmSummary()">
+                                    <input type="radio" name="importMode" value="skip_duplicate" checked onchange="updateImportConfirmSummary()">
                                     <span class="custom-radio"></span>
                                     <div class="import-option-content">
-                                        <div class="import-option-title">仅导入有效行</div>
-                                        <div class="import-option-desc">只导入没有错误的数据行，跳过有警告和无效的行将被忽略</div>
+                                        <div class="import-option-title">跳过重复文号</div>
+                                        <div class="import-option-desc">导入所有无错误的数据行，与现有数据文号重复的行将被跳过</div>
                                     </div>
                                 </label>
                                 <label class="import-option-item">
@@ -873,7 +873,7 @@
                                     <span class="custom-radio"></span>
                                     <div class="import-option-content">
                                         <div class="import-option-title">覆盖重复文号</div>
-                                        <div class="import-option-desc">如果导入数据中存在与现有系统重复的文号，将覆盖原有数据</div>
+                                        <div class="import-option-desc">导入所有无错误的数据行，与现有数据文号重复的将覆盖原有数据</div>
                                     </div>
                                 </label>
                             </div>
