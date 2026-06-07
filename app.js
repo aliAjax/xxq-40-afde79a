@@ -4,6 +4,7 @@ const AUDIT_LOG_STORAGE_KEY = 'document_audit_logs';
 const FLOW_RULE_STORAGE_KEY = 'document_flow_rules';
 const VIEW_PRESETS_STORAGE_KEY = 'document_view_presets';
 const ACTIVE_VIEW_STORAGE_KEY = 'document_active_view';
+const CHANGE_HISTORY_STORAGE_KEY = 'document_change_history';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
 const URGENCY_LIST = ['普通', '加急', '特急'];
 
@@ -298,6 +299,332 @@ function getAuditLogs() {
 
 function saveAuditLogs(logs) {
     localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(logs));
+}
+
+const CHANGE_HISTORY_FIELDS = [
+    { key: 'title', label: '标题', type: 'text' },
+    { key: 'docNumber', label: '文号', type: 'text' },
+    { key: 'fromUnit', label: '来文单位', type: 'text' },
+    { key: 'receiveDate', label: '收文日期', type: 'date' },
+    { key: 'urgency', label: '紧急程度', type: 'text' },
+    { key: 'proposedDepartment', label: '拟办科室', type: 'text' },
+    { key: 'undertakingDepartment', label: '承办科室', type: 'text' },
+    { key: 'coDepartments', label: '协办科室', type: 'array' },
+    { key: 'deadline', label: '办理期限', type: 'date' },
+    { key: 'extendedDeadline', label: '延期后期限', type: 'date' },
+    { key: 'flowStatus', label: '流转状态', type: 'status' },
+    { key: 'remark', label: '备注', type: 'text' },
+    { key: 'reminderNote', label: '提醒备注', type: 'text' },
+    { key: 'snoozeUntil', label: '暂不提醒至', type: 'date' },
+    { key: 'completed', label: '是否办结', type: 'boolean' },
+    { key: 'completedRemark', label: '办结说明', type: 'text' }
+];
+
+function getChangeHistory() {
+    const data = localStorage.getItem(CHANGE_HISTORY_STORAGE_KEY);
+    if (!data) return {};
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return {};
+    }
+}
+
+function saveChangeHistory(history) {
+    localStorage.setItem(CHANGE_HISTORY_STORAGE_KEY, JSON.stringify(history));
+}
+
+function getChangeHistoryByDocId(docId) {
+    const allHistory = getChangeHistory();
+    return allHistory[docId] || [];
+}
+
+function formatFieldValue(key, value) {
+    const field = CHANGE_HISTORY_FIELDS.find(f => f.key === key);
+    if (!field) return value;
+
+    if (value === undefined || value === null || value === '') {
+        return '（空）';
+    }
+
+    switch (field.type) {
+        case 'date':
+            return formatDate(value);
+        case 'array':
+            if (Array.isArray(value) && value.length > 0) {
+                return value.join('、');
+            }
+            return '无';
+        case 'status':
+            return FLOW_STATUS_TEXT[value] || value;
+        case 'boolean':
+            return value ? '是' : '否';
+        default:
+            return String(value);
+    }
+}
+
+function getFieldChanges(oldDoc, newDoc) {
+    const changes = [];
+    CHANGE_HISTORY_FIELDS.forEach(function(field) {
+        const oldVal = oldDoc ? oldDoc[field.key] : undefined;
+        const newVal = newDoc ? newDoc[field.key] : undefined;
+
+        let isChanged = false;
+        if (field.type === 'array') {
+            const oldArr = oldVal || [];
+            const newArr = newVal || [];
+            isChanged = JSON.stringify(oldArr.sort()) !== JSON.stringify(newArr.sort());
+        } else {
+            isChanged = (oldVal || '') !== (newVal || '');
+        }
+
+        if (isChanged) {
+            changes.push({
+                key: field.key,
+                label: field.label,
+                type: field.type,
+                oldValue: oldVal,
+                newValue: newVal,
+                oldDisplay: formatFieldValue(field.key, oldVal),
+                newDisplay: formatFieldValue(field.key, newVal)
+            });
+        }
+    });
+    return changes;
+}
+
+function addChangeHistoryRecord(docId, action, actionText, oldDoc, newDoc, extra) {
+    const allHistory = getChangeHistory();
+    if (!allHistory[docId]) {
+        allHistory[docId] = [];
+    }
+
+    const changes = getFieldChanges(oldDoc, newDoc);
+
+    const record = {
+        id: generateId(),
+        action: action,
+        actionText: actionText || AUDIT_ACTION_TEXT[action] || action,
+        timestamp: new Date().toISOString(),
+        oldSnapshot: oldDoc ? extractComparableSnapshot(oldDoc) : null,
+        newSnapshot: newDoc ? extractComparableSnapshot(newDoc) : null,
+        changes: changes,
+        extra: extra || null
+    };
+
+    allHistory[docId].unshift(record);
+    saveChangeHistory(allHistory);
+    return record;
+}
+
+function extractComparableSnapshot(doc) {
+    if (!doc) return null;
+    const snapshot = {};
+    CHANGE_HISTORY_FIELDS.forEach(function(field) {
+        if (doc[field.key] !== undefined) {
+            snapshot[field.key] = doc[field.key];
+        }
+    });
+    return snapshot;
+}
+
+const CHANGE_HISTORY_MIGRATION_KEY = 'document_change_history_migrated_v1';
+
+function migrateChangeHistory() {
+    const migrationDone = localStorage.getItem(CHANGE_HISTORY_MIGRATION_KEY);
+    if (migrationDone === 'true') {
+        return;
+    }
+
+    const allDocs = loadAllDocuments();
+    const allHistory = getChangeHistory();
+    const auditLogs = getAuditLogs();
+    
+    let migratedCount = 0;
+
+    allDocs.forEach(function(doc) {
+        if (allHistory[doc.id] && allHistory[doc.id].length > 0) {
+            return;
+        }
+
+        const docHistory = [];
+
+        docHistory.push({
+            id: generateId(),
+            action: AUDIT_ACTION.CREATE,
+            actionText: AUDIT_ACTION_TEXT[AUDIT_ACTION.CREATE] || '新增收文',
+            timestamp: doc.createdAt || new Date().toISOString(),
+            oldSnapshot: null,
+            newSnapshot: extractComparableSnapshot(doc),
+            changes: [],
+            extra: { migrated: true }
+        });
+
+        if (doc.flowRecords && doc.flowRecords.length > 0) {
+            let currentSnapshot = extractComparableSnapshot(doc);
+            
+            const sortedFlowRecords = [...doc.flowRecords].sort(function(a, b) {
+                return new Date(a.createdAt) - new Date(b.createdAt);
+            });
+
+            let prevDoc = { ...doc };
+            for (let i = sortedFlowRecords.length - 1; i >= 0; i--) {
+                const record = sortedFlowRecords[i];
+                let tempDoc = { ...prevDoc };
+                
+                if (record.action === FLOW_ACTION.COMPLETE) {
+                    tempDoc.completed = false;
+                    tempDoc.completedAt = null;
+                    tempDoc.completedRemark = '';
+                    tempDoc.flowStatus = record.fromStatus || FLOW_STATUS.PROCESSING;
+                } else if (record.fromStatus) {
+                    tempDoc.flowStatus = record.fromStatus;
+                }
+                
+                if (record.action === FLOW_ACTION.ASSIGN && record.department) {
+                    tempDoc.undertakingDepartment = record.department;
+                    tempDoc.department = record.department;
+                }
+                
+                if (record.action === FLOW_ACTION.PROPOSE && record.department) {
+                    tempDoc.proposedDepartment = record.department;
+                }
+
+                const auditActionMap = {
+                    [FLOW_ACTION.PROPOSE]: AUDIT_ACTION.FLOW_PROPOSE,
+                    [FLOW_ACTION.ASSIGN]: AUDIT_ACTION.FLOW_ASSIGN,
+                    [FLOW_ACTION.PROGRESS]: AUDIT_ACTION.FLOW_PROGRESS,
+                    [FLOW_ACTION.FEEDBACK]: AUDIT_ACTION.FLOW_FEEDBACK,
+                    [FLOW_ACTION.COMPLETE]: AUDIT_ACTION.COMPLETE
+                };
+
+                const actionType = auditActionMap[record.action] || record.action;
+                const actionText = record.actionText || FLOW_ACTION_TEXT[record.action] || record.action;
+
+                const changes = getFieldChanges(tempDoc, prevDoc);
+                
+                const historyRecord = {
+                    id: generateId(),
+                    action: actionType,
+                    actionText: actionText,
+                    timestamp: record.createdAt || new Date().toISOString(),
+                    oldSnapshot: extractComparableSnapshot(tempDoc),
+                    newSnapshot: extractComparableSnapshot(prevDoc),
+                    changes: changes,
+                    extra: {
+                        migrated: true,
+                        handler: record.handler || '',
+                        opinion: record.opinion || '',
+                        department: record.department || ''
+                    }
+                };
+
+                docHistory.unshift(historyRecord);
+                prevDoc = tempDoc;
+            }
+        }
+
+        if (doc.reminderHistory && doc.reminderHistory.length > 0) {
+            const sortedReminders = [...doc.reminderHistory].sort(function(a, b) {
+                return new Date(a.createdAt) - new Date(b.createdAt);
+            });
+
+            sortedReminders.forEach(function(item) {
+                let action = AUDIT_ACTION.EDIT;
+                let actionText = '提醒变更';
+                
+                if (item.type === 'extend') {
+                    action = AUDIT_ACTION.EXTEND;
+                    actionText = AUDIT_ACTION_TEXT[action] || '延期办理';
+                } else if (item.type === 'snooze') {
+                    actionText = '设置暂不提醒';
+                } else if (item.type === 'cancel_snooze') {
+                    actionText = '取消暂不提醒';
+                } else if (item.type === 'note') {
+                    actionText = '提醒备注变更';
+                }
+
+                let oldDoc = { ...doc };
+                let newDoc = { ...doc };
+
+                if (item.type === 'extend' && item.oldDeadline && item.newDeadline) {
+                    oldDoc.extendedDeadline = item.oldDeadline;
+                    newDoc.extendedDeadline = item.newDeadline;
+                } else if (item.type === 'snooze') {
+                    oldDoc.snoozeUntil = '';
+                    newDoc.snoozeUntil = item.snoozeUntil;
+                } else if (item.type === 'cancel_snooze') {
+                    oldDoc.snoozeUntil = item.snoozeUntil || '';
+                    newDoc.snoozeUntil = '';
+                } else if (item.type === 'note') {
+                    oldDoc.reminderNote = '';
+                    newDoc.reminderNote = item.note || '';
+                }
+
+                const changes = getFieldChanges(oldDoc, newDoc);
+
+                const historyRecord = {
+                    id: generateId(),
+                    action: action,
+                    actionText: actionText,
+                    timestamp: item.createdAt || new Date().toISOString(),
+                    oldSnapshot: extractComparableSnapshot(oldDoc),
+                    newSnapshot: extractComparableSnapshot(newDoc),
+                    changes: changes,
+                    extra: {
+                        migrated: true,
+                        type: item.type
+                    }
+                };
+
+                const insertIndex = docHistory.findIndex(function(h) {
+                    return new Date(h.timestamp) > new Date(item.createdAt);
+                });
+
+                if (insertIndex === -1) {
+                    docHistory.push(historyRecord);
+                } else {
+                    docHistory.splice(insertIndex, 0, historyRecord);
+                }
+            });
+        }
+
+        if (doc.isDeleted && doc.deletedAt) {
+            const deletedOldDoc = { ...doc };
+            deletedOldDoc.isDeleted = false;
+            deletedOldDoc.deletedAt = null;
+            
+            const changes = getFieldChanges(deletedOldDoc, doc);
+            
+            const deleteRecord = {
+                id: generateId(),
+                action: AUDIT_ACTION.DELETE,
+                actionText: AUDIT_ACTION_TEXT[AUDIT_ACTION.DELETE] || '删除收文',
+                timestamp: doc.deletedAt,
+                oldSnapshot: extractComparableSnapshot(deletedOldDoc),
+                newSnapshot: extractComparableSnapshot(doc),
+                changes: changes,
+                extra: { migrated: true }
+            };
+            
+            docHistory.unshift(deleteRecord);
+        }
+
+        docHistory.sort(function(a, b) {
+            return new Date(b.timestamp) - new Date(a.timestamp);
+        });
+
+        allHistory[doc.id] = docHistory;
+        migratedCount++;
+    });
+
+    saveChangeHistory(allHistory);
+    localStorage.setItem(CHANGE_HISTORY_MIGRATION_KEY, 'true');
+
+    if (migratedCount > 0) {
+        console.log(`变更历史迁移完成，共迁移 ${migratedCount} 条收文的历史记录`);
+    }
 }
 
 function getDefaultFlowRules() {
@@ -2910,6 +3237,10 @@ function executeBatchDepartment(e) {
             fromBatch: true,
             newDepartment: newDepartment
         });
+        addChangeHistoryRecord(item.newDoc.id, AUDIT_ACTION.BATCH_DEPARTMENT, null, item.oldDoc, item.newDoc, {
+            fromBatch: true,
+            newDepartment: newDepartment
+        });
     });
     showToast(`成功修改 ${count} 条收文的承办科室`, 'success');
 
@@ -3341,6 +3672,11 @@ function addFlowRecord(docId, action, opinion, handler, department, toStatus, co
     const auditAction = flowAuditActionMap[action];
     if (auditAction) {
         addAuditLog(auditAction, doc, oldDoc, {
+            handler: handler || '',
+            opinion: opinion || '',
+            department: department || ''
+        });
+        addChangeHistoryRecord(doc.id, auditAction, null, oldDoc, doc, {
             handler: handler || '',
             opinion: opinion || '',
             department: department || ''
@@ -3827,6 +4163,7 @@ function saveDocument(e) {
             }
             documents[index] = updatedDoc;
             addAuditLog(AUDIT_ACTION.EDIT, updatedDoc, oldDoc);
+            addChangeHistoryRecord(updatedDoc.id, AUDIT_ACTION.EDIT, null, oldDoc, updatedDoc);
             showToast('收文更新成功', 'success');
         }
     } else {
@@ -3859,6 +4196,7 @@ function saveDocument(e) {
         };
         documents.unshift(newDoc);
         addAuditLog(AUDIT_ACTION.CREATE, newDoc, null);
+        addChangeHistoryRecord(newDoc.id, AUDIT_ACTION.CREATE, null, null, newDoc);
         showToast('收文添加成功', 'success');
     }
 
@@ -3921,6 +4259,10 @@ function saveProcessingRecord(e) {
     saveDocuments(documents);
 
     addAuditLog(AUDIT_ACTION.ADD_PROGRESS_RECORD, doc, oldDoc, {
+        handler: handler,
+        content: content
+    });
+    addChangeHistoryRecord(doc.id, AUDIT_ACTION.ADD_PROGRESS_RECORD, null, oldDoc, doc, {
         handler: handler,
         content: content
     });
@@ -4041,6 +4383,7 @@ function deleteDocument(id) {
 
     saveDocuments(allDocs);
     addAuditLog(AUDIT_ACTION.DELETE, doc, oldDoc);
+    addChangeHistoryRecord(doc.id, AUDIT_ACTION.DELETE, null, oldDoc, doc);
 
     const selIndex = selectedIds.indexOf(id);
     if (selIndex > -1) {
@@ -4068,6 +4411,7 @@ function restoreDocument(id) {
 
     saveDocuments(allDocs);
     addAuditLog(AUDIT_ACTION.RESTORE_RECYCLE, doc, oldDoc);
+    addChangeHistoryRecord(doc.id, AUDIT_ACTION.RESTORE_RECYCLE, null, oldDoc, doc);
     return true;
 }
 
@@ -4081,6 +4425,11 @@ function permanentDeleteDocument(id) {
     const filtered = allDocs.filter(d => d.id !== id);
     saveDocuments(filtered);
     addAuditLog(AUDIT_ACTION.PERMANENT_DELETE, doc, null);
+    
+    const allHistory = getChangeHistory();
+    delete allHistory[id];
+    saveChangeHistory(allHistory);
+    
     return true;
 }
 
@@ -4111,6 +4460,9 @@ function batchRestoreDocuments(ids) {
         addAuditLog(AUDIT_ACTION.RESTORE_RECYCLE, item.newDoc, item.oldDoc, {
             fromBatch: true
         });
+        addChangeHistoryRecord(item.newDoc.id, AUDIT_ACTION.RESTORE_RECYCLE, null, item.oldDoc, item.newDoc, {
+            fromBatch: true
+        });
     });
     return count;
 }
@@ -4130,6 +4482,12 @@ function batchPermanentDelete(ids) {
 
     const filtered = allDocs.filter(d => !ids.includes(d.id));
     saveDocuments(filtered);
+    
+    const allHistory = getChangeHistory();
+    ids.forEach(function(id) {
+        delete allHistory[id];
+    });
+    saveChangeHistory(allHistory);
 
     return toDelete.length;
 }
@@ -4151,12 +4509,140 @@ function emptyRecycleBin() {
 
     const remaining = loadAllDocuments().filter(d => !d.isDeleted);
     saveDocuments(remaining);
+    
+    const allHistory = getChangeHistory();
+    recycleDocs.forEach(function(doc) {
+        delete allHistory[doc.id];
+    });
+    saveChangeHistory(allHistory);
 
     recycleSelectedIds = [];
     showToast('回收站已清空', 'success');
     if (currentView === 'recycle_bin') {
         renderRecycleBinList();
     }
+}
+
+function renderChangeHistory(docId) {
+    const history = getChangeHistoryByDocId(docId);
+    if (history.length === 0) {
+        return `
+            <div class="change-history-empty">
+                <div class="change-history-empty-icon">📋</div>
+                <div class="change-history-empty-text">暂无变更历史记录</div>
+            </div>
+        `;
+    }
+
+    const actionIconMap = {
+        'create': '➕',
+        'edit': '✏️',
+        'complete': '✅',
+        'extend': '⏰',
+        'batch_complete': '✅',
+        'batch_delete': '🗑',
+        'batch_department': '🏢',
+        'import': '📋',
+        'restore': '♻️',
+        'delete': '🗑',
+        'restore_recycle': '↩',
+        'batch_restore_recycle': '↩',
+        'permanent_delete': '✕',
+        'flow_propose': '💡',
+        'flow_assign': '📤',
+        'flow_progress': '🔄',
+        'flow_feedback': '📨'
+    };
+
+    return `
+        <div class="change-history-list">
+            ${history.map(function(record, index) {
+                const icon = actionIconMap[record.action] || '📝';
+                const timeStr = formatDateTime(record.timestamp);
+                const changeCount = record.changes ? record.changes.length : 0;
+                const isExpanded = index === 0;
+                
+                return `
+                    <div class="change-history-item ${isExpanded ? 'expanded' : ''}" data-record-id="${record.id}">
+                        <div class="change-history-header" onclick="toggleChangeHistoryItem('${record.id}')">
+                            <div class="change-history-icon">${icon}</div>
+                            <div class="change-history-info">
+                                <div class="change-history-action">
+                                    ${escapeHtml(record.actionText)}
+                                    ${changeCount > 0 ? `<span class="change-count-badge">${changeCount} 处变更</span>` : ''}
+                                </div>
+                                <div class="change-history-time">${escapeHtml(timeStr)}</div>
+                            </div>
+                            <div class="change-history-toggle">
+                                <span class="toggle-arrow">▼</span>
+                            </div>
+                        </div>
+                        <div class="change-history-content">
+                            ${record.extra && record.extra.handler ? `
+                                <div class="change-history-extra">
+                                    <span class="change-extra-label">处理人：</span>
+                                    <span class="change-extra-value">${escapeHtml(record.extra.handler)}</span>
+                                </div>
+                            ` : ''}
+                            ${record.extra && record.extra.opinion ? `
+                                <div class="change-history-extra">
+                                    <span class="change-extra-label">意见：</span>
+                                    <span class="change-extra-value">${escapeHtml(record.extra.opinion)}</span>
+                                </div>
+                            ` : ''}
+                            ${record.changes && record.changes.length > 0 ? `
+                                <div class="change-field-list">
+                                    <div class="change-field-header">
+                                        <span class="change-field-label">字段</span>
+                                        <span class="change-field-before">变更前</span>
+                                        <span class="change-field-arrow">→</span>
+                                        <span class="change-field-after">变更后</span>
+                                    </div>
+                                    ${record.changes.map(function(change) {
+                                        return `
+                                            <div class="change-field-row">
+                                                <span class="change-field-label">${escapeHtml(change.label)}</span>
+                                                <span class="change-field-before">${escapeHtml(change.oldDisplay)}</span>
+                                                <span class="change-field-arrow">→</span>
+                                                <span class="change-field-after">${escapeHtml(change.newDisplay)}</span>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            ` : `
+                                <div class="change-no-fields">无字段变更</div>
+                            `}
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+function toggleChangeHistoryItem(recordId) {
+    const item = document.querySelector(`.change-history-item[data-record-id="${recordId}"]`);
+    if (item) {
+        item.classList.toggle('expanded');
+    }
+}
+
+let changeHistoryScrollTargetId = null;
+
+function scrollToChangeHistory(recordId) {
+    changeHistoryScrollTargetId = recordId;
+    setTimeout(function() {
+        const item = document.querySelector(`.change-history-item[data-record-id="${recordId}"]`);
+        if (item) {
+            item.classList.add('expanded');
+            item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            item.style.animation = 'change-history-highlight 2s ease';
+            setTimeout(function() {
+                item.style.animation = '';
+            }, 2000);
+        }
+        changeHistoryScrollTargetId = null;
+    }, 100);
 }
 
 function viewDocument(id) {
@@ -4193,6 +4679,8 @@ function viewDocument(id) {
     const flowTimelineCount = (doc.flowRecords || []).length + (doc.supervisionRecords || []).length;
     const isHighRisk = isHighRiskDoc(doc);
     const processingDays = getDocProcessingDays(doc);
+    const changeHistoryList = getChangeHistoryByDocId(doc.id);
+    const changeHistoryCount = changeHistoryList.length;
 
     const detailContent = document.getElementById('detailContent');
     detailContent.innerHTML = `
@@ -4289,6 +4777,13 @@ function viewDocument(id) {
                 <span class="detail-section-count">共 ${flowTimelineCount} 条</span>
             </div>
             ${renderFlowTimeline(doc)}
+        </div>
+        <div class="detail-section" id="changeHistorySection">
+            <div class="detail-section-header">
+                <span class="detail-section-title">📋 变更历史对比</span>
+                <span class="detail-section-count">共 ${changeHistoryCount} 条</span>
+            </div>
+            ${renderChangeHistory(doc.id)}
         </div>
     `;
 
@@ -6118,6 +6613,8 @@ function restoreDocuments(overwrite) {
     const finalDocs = allDocs.slice();
     const seenIds = {};
     const seenDocNumbers = {};
+    const addedDocIds = [];
+    const overwrittenDocs = [];
 
     restorePackage.data.documents.forEach(function(item) {
         let isInternalDup = false;
@@ -6179,11 +6676,13 @@ function restoreDocuments(overwrite) {
                 createdAt: item.createdAt || new Date().toISOString()
             };
             finalDocs.push(newDoc);
+            addedDocIds.push(newDoc.id);
             addCount++;
         } else if (overwrite) {
             const idx = docIndexById[matchDoc.id];
             if (idx !== undefined && idx !== -1) {
                 const wasDeleted = matchDoc.isDeleted;
+                const oldDoc = { ...matchDoc };
                 let deadline = item.deadline;
                 if (!deadline && item.receiveDate && item.urgency) {
                     const days = getDeadlineDaysByUrgency(item.urgency);
@@ -6211,6 +6710,7 @@ function restoreDocuments(overwrite) {
                     isDeleted: false,
                     deletedAt: null
                 };
+                overwrittenDocs.push({ oldDoc: oldDoc, newDoc: finalDocs[idx] });
                 overwriteCount++;
                 if (wasDeleted) restoredFromTrash++;
             }
@@ -6220,6 +6720,18 @@ function restoreDocuments(overwrite) {
     });
 
     saveDocuments(finalDocs);
+    
+    addedDocIds.forEach(function(docId) {
+        const doc = finalDocs.find(d => d.id === docId);
+        if (doc) {
+            addChangeHistoryRecord(docId, AUDIT_ACTION.RESTORE, '恢复备份-新增', null, doc);
+        }
+    });
+    
+    overwrittenDocs.forEach(function(item) {
+        addChangeHistoryRecord(item.newDoc.id, AUDIT_ACTION.RESTORE, '恢复备份-覆盖', item.oldDoc, item.newDoc);
+    });
+    
     return { added: addCount, overwritten: overwriteCount, skipped: skipCount, restoredFromTrash: restoredFromTrash };
 }
 
@@ -6423,6 +6935,7 @@ function setReminderNote(docId, note) {
     const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
+    const oldDoc = { ...documents[docIndex] };
     documents[docIndex].reminderNote = note;
     documents[docIndex].reminderHistory.push({
         id: generateId(),
@@ -6432,6 +6945,7 @@ function setReminderNote(docId, note) {
     });
 
     saveDocuments(documents);
+    addChangeHistoryRecord(docId, AUDIT_ACTION.EDIT, '提醒备注变更', oldDoc, documents[docIndex], { type: 'note' });
     updateStats();
     renderDocumentList();
     renderReminderCenter();
@@ -6463,6 +6977,7 @@ function extendDeadline(docId, days) {
 
     saveDocuments(documents);
     addAuditLog(AUDIT_ACTION.EXTEND, doc, oldDoc, { extendDays: parseInt(days) });
+    addChangeHistoryRecord(docId, AUDIT_ACTION.EXTEND, null, oldDoc, doc, { extendDays: parseInt(days) });
     updateStats();
     renderDocumentList();
     renderReminderCenter();
@@ -6474,6 +6989,7 @@ function snoozeReminder(docId, snoozeDate) {
     const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
+    const oldDoc = { ...documents[docIndex] };
     documents[docIndex].snoozeUntil = snoozeDate;
     documents[docIndex].reminderHistory.push({
         id: generateId(),
@@ -6483,6 +6999,7 @@ function snoozeReminder(docId, snoozeDate) {
     });
 
     saveDocuments(documents);
+    addChangeHistoryRecord(docId, AUDIT_ACTION.EDIT, '设置暂不提醒', oldDoc, documents[docIndex], { type: 'snooze' });
     updateStats();
     renderDocumentList();
     renderReminderCenter();
@@ -6494,6 +7011,7 @@ function cancelSnooze(docId) {
     const docIndex = documents.findIndex(d => d.id === docId && !d.isDeleted);
     if (docIndex === -1) return false;
 
+    const oldDoc = { ...documents[docIndex] };
     documents[docIndex].snoozeUntil = '';
     documents[docIndex].reminderHistory.push({
         id: generateId(),
@@ -6502,6 +7020,7 @@ function cancelSnooze(docId) {
     });
 
     saveDocuments(documents);
+    addChangeHistoryRecord(docId, AUDIT_ACTION.EDIT, '取消暂不提醒', oldDoc, documents[docIndex], { type: 'cancel_snooze' });
     updateStats();
     renderDocumentList();
     renderReminderCenter();
@@ -6568,6 +7087,12 @@ function createSupervision(docId, reason, supervisor, feedbackDeadline) {
         supervisor: supervisor,
         feedbackDeadline: feedbackDeadline
     });
+    addChangeHistoryRecord(doc.id, AUDIT_ACTION.SUPERVISION_CREATE, null, oldDoc, doc, {
+        supervisionId: supervisionRecord.id,
+        reason: reason,
+        supervisor: supervisor,
+        feedbackDeadline: feedbackDeadline
+    });
 
     updateStats();
     renderDocumentList();
@@ -6607,6 +7132,14 @@ function feedbackSupervision(docId, supervisionId, result) {
 
     saveDocuments(documents);
     addAuditLog(AUDIT_ACTION.SUPERVISION_FEEDBACK, doc, oldDoc, {
+        supervisionId: supervisionId,
+        reason: record.reason,
+        supervisor: record.supervisor,
+        feedbackDeadline: record.feedbackDeadline,
+        result: result,
+        feedbackAt: now
+    });
+    addChangeHistoryRecord(doc.id, AUDIT_ACTION.SUPERVISION_FEEDBACK, null, oldDoc, doc, {
         supervisionId: supervisionId,
         reason: record.reason,
         supervisor: record.supervisor,
@@ -7163,13 +7696,17 @@ function renderAuditLogList() {
         const icon = actionIconMap[log.action] || '📝';
         const timeStr = formatDateTime(log.timestamp);
         const extraText = log.extra && log.extra.count ? '（共 ' + log.extra.count + ' 条）' : '';
+        const canViewDetail = log.docId && log.action !== AUDIT_ACTION.PERMANENT_DELETE && log.action !== AUDIT_ACTION.BATCH_PERMANENT_DELETE && log.action !== AUDIT_ACTION.EMPTY_RECYCLE_BIN;
 
         return `
             <div class="audit-log-item">
                 <div class="audit-log-icon">${icon}</div>
                 <div class="audit-log-content">
                     <div class="audit-log-header">
-                        <span class="audit-log-action">${escapeHtml(log.actionText)}${extraText}</span>
+                        <span class="audit-log-action">
+                            ${escapeHtml(log.actionText)}${extraText}
+                            ${canViewDetail ? '<span class="audit-log-view-detail" onclick="viewDocFromAuditLog(\'' + log.docId + '\', event)">查看收文 →</span>' : ''}
+                        </span>
                         <span class="audit-log-time">${escapeHtml(timeStr)}</span>
                     </div>
                     <div class="audit-log-title">
@@ -7200,6 +7737,35 @@ function searchAuditLogs() {
         auditLogKeyword = input.value.trim();
     }
     renderAuditLogList();
+}
+
+function viewDocFromAuditLog(docId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    
+    const allDocs = loadAllDocuments();
+    const doc = allDocs.find(d => d.id === docId);
+    if (!doc) {
+        showToast('该收文不存在或已被彻底删除', 'warning');
+        return;
+    }
+    
+    if (doc.isDeleted) {
+        switchView('recycle_bin');
+    } else {
+        switchView('list');
+    }
+    
+    setTimeout(function() {
+        viewDocument(docId);
+        setTimeout(function() {
+            const section = document.getElementById('changeHistorySection');
+            if (section) {
+                section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 100);
+    }, 100);
 }
 
 function renderRecycleBinList() {
@@ -7442,6 +8008,8 @@ function init() {
     setupFileDragDrop();
     setupRestoreFileDragDrop();
     setupImportWizardEvents();
+
+    migrateChangeHistory();
 
     const activePresetId = getActiveViewPresetId();
     if (activePresetId) {
