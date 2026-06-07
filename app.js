@@ -2271,7 +2271,7 @@ function renderViewPresetSelector() {
             const isActive = preset.id === currentViewPresetId;
             const isMatching = !currentViewPresetId && isCurrentViewMatchingPreset(preset);
             menuHtml += `
-                <div class="view-preset-item ${isActive ? 'active' : ''} ${isMatching ? 'matching' : ''}" 
+                <div class="view-preset-item ${isActive ? 'active' : ''} ${isMatching ? 'matching' : ''}"
                      onclick="${viewPresetManageMode ? '' : `selectViewPreset('${preset.id}')`}">
                     <div class="view-preset-item-main">
                         <div class="view-preset-item-icon">${preset.viewType === 'board' ? '📊' : '📋'}</div>
@@ -2286,8 +2286,8 @@ function renderViewPresetSelector() {
                     ${viewPresetManageMode ? `
                         <div class="view-preset-item-actions">
                             <button class="view-preset-action-btn" onclick="event.stopPropagation(); renameViewPresetPrompt('${preset.id}')" title="重命名">✏️</button>
-                            <button class="view-preset-action-btn ${preset.isDefault ? 'disabled' : ''}" 
-                                    onclick="event.stopPropagation(); ${preset.isDefault ? '' : `setDefaultViewPresetHandler('${preset.id}')`}" 
+                            <button class="view-preset-action-btn ${preset.isDefault ? 'disabled' : ''}"
+                                    onclick="event.stopPropagation(); ${preset.isDefault ? '' : `setDefaultViewPresetHandler('${preset.id}')`}"
                                     title="${preset.isDefault ? '已是默认' : '设为默认'}">${preset.isDefault ? '⭐' : '☆'}</button>
                             <button class="view-preset-action-btn delete" onclick="event.stopPropagation(); deleteViewPresetHandler('${preset.id}')" title="删除">🗑</button>
                         </div>
