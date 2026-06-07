@@ -560,7 +560,7 @@ function migrateChangeHistory() {
             for (let i = sortedFlowRecords.length - 1; i >= 0; i--) {
                 const record = sortedFlowRecords[i];
                 let tempDoc = { ...prevDoc };
-                
+
                 if (record.action === FLOW_ACTION.COMPLETE) {
                     tempDoc.completed = false;
                     tempDoc.completedAt = null;
@@ -569,12 +569,12 @@ function migrateChangeHistory() {
                 } else if (record.fromStatus) {
                     tempDoc.flowStatus = record.fromStatus;
                 }
-                
+
                 if (record.action === FLOW_ACTION.ASSIGN && record.department) {
                     tempDoc.undertakingDepartment = record.department;
                     tempDoc.department = record.department;
                 }
-                
+
                 if (record.action === FLOW_ACTION.PROPOSE && record.department) {
                     tempDoc.proposedDepartment = record.department;
                 }
@@ -591,7 +591,7 @@ function migrateChangeHistory() {
                 const actionText = record.actionText || FLOW_ACTION_TEXT[record.action] || record.action;
 
                 const changes = getFieldChanges(tempDoc, prevDoc);
-                
+
                 const historyRecord = {
                     id: generateId(),
                     action: actionType,
@@ -621,7 +621,7 @@ function migrateChangeHistory() {
             sortedReminders.forEach(function(item) {
                 let action = AUDIT_ACTION.EDIT;
                 let actionText = '提醒变更';
-                
+
                 if (item.type === 'extend') {
                     action = AUDIT_ACTION.EXTEND;
                     actionText = AUDIT_ACTION_TEXT[action] || '延期办理';
@@ -682,9 +682,9 @@ function migrateChangeHistory() {
             const deletedOldDoc = { ...doc };
             deletedOldDoc.isDeleted = false;
             deletedOldDoc.deletedAt = null;
-            
+
             const changes = getFieldChanges(deletedOldDoc, doc);
-            
+
             const deleteRecord = {
                 id: generateId(),
                 action: AUDIT_ACTION.DELETE,
@@ -695,7 +695,7 @@ function migrateChangeHistory() {
                 changes: changes,
                 extra: { migrated: true }
             };
-            
+
             docHistory.unshift(deleteRecord);
         }
 
@@ -5865,11 +5865,11 @@ function permanentDeleteDocument(id) {
     const filtered = allDocs.filter(d => d.id !== id);
     saveDocuments(filtered);
     addAuditLog(AUDIT_ACTION.PERMANENT_DELETE, doc, null);
-    
+
     const allHistory = getChangeHistory();
     delete allHistory[id];
     saveChangeHistory(allHistory);
-    
+
     return true;
 }
 
@@ -5923,7 +5923,7 @@ function batchPermanentDelete(ids) {
 
     const filtered = allDocs.filter(d => !ids.includes(d.id));
     saveDocuments(filtered);
-    
+
     const allHistory = getChangeHistory();
     ids.forEach(function(id) {
         delete allHistory[id];
@@ -5950,7 +5950,7 @@ function emptyRecycleBin() {
 
     const remaining = loadAllDocuments().filter(d => !d.isDeleted);
     saveDocuments(remaining);
-    
+
     const allHistory = getChangeHistory();
     recycleDocs.forEach(function(doc) {
         delete allHistory[doc.id];
@@ -6006,7 +6006,7 @@ function renderChangeHistory(docId) {
                 const timeStr = formatDateTime(record.timestamp);
                 const changeCount = record.changes ? record.changes.length : 0;
                 const isExpanded = index === 0;
-                
+
                 return `
                     <div class="change-history-item ${isExpanded ? 'expanded' : ''}" data-record-id="${record.id}">
                         <div class="change-history-header" onclick="toggleChangeHistoryItem('${record.id}')">
@@ -6864,7 +6864,7 @@ function validateWizardData() {
         if (row.proposedDepartment && !isValidDepartment(row.proposedDepartment)) {
             warnings.push('拟办科室"' + row.proposedDepartment + '"未知');
         } else if (row.proposedDepartment && !isDepartmentActive(row.proposedDepartment)) {
-            warnings.push('拟办科室"' + row.proposedDepartment + '"已停用');
+            errors.push('拟办科室"' + row.proposedDepartment + '"已停用，不能用于新增收文');
         }
 
         if (!row.undertakingDepartment) {
@@ -6886,7 +6886,7 @@ function validateWizardData() {
                 return isValidDepartment(d) && !isDepartmentActive(d);
             });
             if (disabledCoDepts.length > 0) {
-                warnings.push('协办科室存在已停用科室：' + disabledCoDepts.join('、'));
+                errors.push('协办科室存在已停用科室：' + disabledCoDepts.join('、'));
             }
         }
 
@@ -7655,7 +7655,7 @@ function updateDataTypeCounts() {
     document.getElementById('restoreTypeAuditCount').textContent = restorePackage.data.auditLogs.length + ' 条';
     document.getElementById('restoreTypeFlowCount').textContent = (restorePackage.data.flowRules ? 1 : 0) + ' 项';
     document.getElementById('restoreTypeViewCount').textContent = restorePackage.data.viewPresets.length + ' 个';
-    document.getElementById('restoreTypeDeptCount').textContent = 
+    document.getElementById('restoreTypeDeptCount').textContent =
         ((restorePackage.data.departments && restorePackage.data.departments.length) || 0) + ' 个';
 
     const hasFlowRules = restorePackage.data.flowRules !== null;
@@ -8316,7 +8316,7 @@ function restoreDocuments(overwrite) {
     });
 
     saveDocuments(finalDocs);
-    
+
     addedDocIds.forEach(function(docId) {
         const doc = finalDocs.find(d => d.id === docId);
         if (doc) {
