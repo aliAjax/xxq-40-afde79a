@@ -289,6 +289,7 @@ function getFlowRules() {
     try {
         const rules = JSON.parse(data);
         const defaults = getDefaultFlowRules();
+        const hasCompletableStatuses = rules.completableStatuses !== undefined && rules.completableStatuses !== null;
         return {
             version: rules.version || defaults.version,
             urgencyDeadlineDays: {
@@ -296,8 +297,8 @@ function getFlowRules() {
                 ...(rules.urgencyDeadlineDays || {})
             },
             requireProposeBeforeAssign: rules.requireProposeBeforeAssign !== undefined ? rules.requireProposeBeforeAssign : defaults.requireProposeBeforeAssign,
-            completableStatuses: Array.isArray(rules.completableStatuses) && rules.completableStatuses.length > 0
-                ? rules.completableStatuses
+            completableStatuses: hasCompletableStatuses
+                ? (Array.isArray(rules.completableStatuses) ? rules.completableStatuses : defaults.completableStatuses)
                 : defaults.completableStatuses,
             updatedAt: rules.updatedAt || null
         };
@@ -2071,19 +2072,21 @@ function getAvailableFlowActions(doc) {
     const requirePropose = isProposeRequiredBeforeAssign();
     const hasProposed = doc.proposedDepartment && doc.proposedDepartment.length > 0;
 
-    if (status === FLOW_STATUS.PENDING_REVIEW) {
-        actions.push({
-            key: 'propose',
-            label: '拟办',
-            icon: '💡',
-            description: '指定拟办科室和处理意见',
-            toStatus: FLOW_STATUS.PROCESSING,
-            needsDepartment: true,
-            departmentLabel: '拟办科室'
-        });
+    if (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING) {
+        if (!hasProposed || status === FLOW_STATUS.PENDING_REVIEW) {
+            actions.push({
+                key: 'propose',
+                label: hasProposed ? '重新拟办' : '拟办',
+                icon: '💡',
+                description: hasProposed ? '修改拟办科室和处理意见' : '指定拟办科室和处理意见',
+                toStatus: status === FLOW_STATUS.PENDING_REVIEW ? FLOW_STATUS.PROCESSING : null,
+                needsDepartment: true,
+                departmentLabel: '拟办科室'
+            });
+        }
     }
 
-    const canAssign = !requirePropose || hasProposed || status !== FLOW_STATUS.PENDING_REVIEW;
+    const canAssign = !requirePropose || hasProposed;
     if (canAssign && (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING)) {
         actions.push({
             key: 'assign',
@@ -3874,6 +3877,10 @@ function confirmRestore() {
                 deadlineDate.setDate(deadlineDate.getDate() + days);
                 deadline = formatDateInput(deadlineDate);
             }
+            let flowStatus = item.flowStatus;
+            if (!flowStatus) {
+                flowStatus = item.completed ? FLOW_STATUS.DONE : FLOW_STATUS.PENDING_REVIEW;
+            }
             const newDoc = {
                 id: item.id || generateId(),
                 fromUnit: item.fromUnit,
@@ -3888,6 +3895,11 @@ function confirmRestore() {
                 completedAt: item.completedAt || null,
                 completedRemark: item.completedRemark || '',
                 processingRecords: item.processingRecords || [],
+                flowStatus: flowStatus,
+                flowRecords: item.flowRecords || [],
+                proposedDepartment: item.proposedDepartment || '',
+                undertakingDepartment: item.undertakingDepartment || item.department || '',
+                coDepartments: item.coDepartments || [],
                 isDeleted: false,
                 deletedAt: null,
                 createdAt: item.createdAt || new Date().toISOString()
@@ -3898,11 +3910,28 @@ function confirmRestore() {
             const index = docIndexById[matchDoc.id];
             if (index !== undefined && index !== -1) {
                 const wasDeleted = matchDoc.isDeleted;
+                let deadline = item.deadline;
+                if (!deadline && item.receiveDate && item.urgency) {
+                    const days = getDeadlineDaysByUrgency(item.urgency);
+                    const deadlineDate = new Date(item.receiveDate);
+                    deadlineDate.setDate(deadlineDate.getDate() + days);
+                    deadline = formatDateInput(deadlineDate);
+                }
+                let flowStatus = item.flowStatus;
+                if (!flowStatus) {
+                    flowStatus = item.completed ? FLOW_STATUS.DONE : FLOW_STATUS.PENDING_REVIEW;
+                }
                 finalDocs[index] = {
                     ...matchDoc,
                     ...item,
                     id: matchDoc.id,
+                    deadline: deadline,
+                    flowStatus: flowStatus,
                     processingRecords: item.processingRecords || matchDoc.processingRecords || [],
+                    flowRecords: item.flowRecords || matchDoc.flowRecords || [],
+                    proposedDepartment: item.proposedDepartment !== undefined ? item.proposedDepartment : (matchDoc.proposedDepartment || ''),
+                    undertakingDepartment: item.undertakingDepartment || item.department || matchDoc.undertakingDepartment || matchDoc.department || '',
+                    coDepartments: item.coDepartments || matchDoc.coDepartments || [],
                     completedRemark: item.completedRemark || matchDoc.completedRemark || '',
                     isDeleted: false,
                     deletedAt: null
