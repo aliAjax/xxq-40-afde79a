@@ -13,8 +13,7 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 CHECK_SCRIPT="$PROJECT_ROOT/scripts/check.sh"
 
 if [ ! -f "$CHECK_SCRIPT" ]; then

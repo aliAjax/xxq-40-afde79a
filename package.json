@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "收文登记管理系统",
   "scripts": {
-    "test": "node tests/run-tests.js",
+    "test": "bash scripts/check.sh",
+    "test-only": "node tests/run-tests.js",
     "check": "bash scripts/check.sh",
     "install-hooks": "bash scripts/install-hooks.sh"
   },
