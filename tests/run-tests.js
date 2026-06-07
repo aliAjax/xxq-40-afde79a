@@ -1,4 +1,7 @@
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 const DocUtils = require('../src/utils.js');
 
 const {
@@ -1050,6 +1053,181 @@ test('回归 - 已删除文档在 getDocuments 语义下被过滤', () => {
 
     const activeDocs = allDocs.filter(function(d) { return !d.isDeleted; });
     equal(activeDocs.length, 8);
+});
+
+console.log('\n11. 生产入口回归测试');
+
+function createProductionHarness(initialStore) {
+    const store = { ...(initialStore || {}) };
+    const elements = {};
+    const documentMock = {
+        addEventListener: function() {},
+        querySelector: function() { return null; },
+        querySelectorAll: function() { return []; },
+        createElement: function() {
+            return {
+                style: {},
+                click: function() {},
+                setAttribute: function() {},
+                appendChild: function() {}
+            };
+        },
+        body: {
+            appendChild: function() {},
+            removeChild: function() {}
+        },
+        getElementById: function(id) {
+            if (!elements[id]) {
+                elements[id] = {
+                    id: id,
+                    textContent: '',
+                    innerHTML: '',
+                    value: '',
+                    className: '',
+                    style: {},
+                    addEventListener: function() {},
+                    querySelector: function() { return null; },
+                    querySelectorAll: function() { return []; },
+                    appendChild: function() {},
+                    removeChild: function() {}
+                };
+            }
+            return elements[id];
+        }
+    };
+
+    const context = {
+        console: console,
+        DocUtils: DocUtils,
+        document: documentMock,
+        localStorage: {
+            getItem: function(key) {
+                return store[key] !== undefined ? store[key] : null;
+            },
+            setItem: function(key, value) {
+                store[key] = String(value);
+            },
+            removeItem: function(key) {
+                delete store[key];
+            },
+            clear: function() {
+                Object.keys(store).forEach(function(key) { delete store[key]; });
+            }
+        },
+        window: {},
+        navigator: {},
+        setTimeout: setTimeout,
+        clearTimeout: clearTimeout,
+        confirm: function() { return true; },
+        alert: function() {},
+        FileReader: function() {},
+        Blob: function() {},
+        URL: {
+            createObjectURL: function() { return 'blob:test'; },
+            revokeObjectURL: function() {}
+        }
+    };
+    context.window = context;
+
+    vm.createContext(context);
+    const appPath = path.join(__dirname, '..', 'app.js');
+    vm.runInContext(fs.readFileSync(appPath, 'utf8'), context, { filename: appPath });
+
+    return {
+        context: context,
+        store: store,
+        elements: elements
+    };
+}
+
+test('生产入口 - loadAllDocuments 读取旧格式后迁移并回写 localStorage', () => {
+    const oldDocs = [
+        { id: 'old_1', title: '旧格式待办', completed: false, department: '办公室' },
+        { id: 'old_2', title: '旧格式办结', completed: true, department: '综合科' }
+    ];
+    const harness = createProductionHarness({
+        document_registry_data: JSON.stringify(oldDocs)
+    });
+
+    const loaded = harness.context.loadAllDocuments();
+    equal(loaded.length, 2);
+    equal(loaded[0].flowStatus, FLOW_STATUS.PROCESSING);
+    equal(loaded[1].flowStatus, FLOW_STATUS.DONE);
+    ok(Array.isArray(loaded[0].flowRecords) && loaded[0].flowRecords.length > 0, '迁移后生成流转记录');
+    ok(loaded[0].isDeleted === false, '迁移后补齐删除标记');
+
+    const persisted = JSON.parse(harness.store.document_registry_data);
+    equal(persisted[0].flowStatus, FLOW_STATUS.PROCESSING);
+    equal(persisted[1].flowStatus, FLOW_STATUS.DONE);
+    ok(Array.isArray(persisted[0].flowRecords) && persisted[0].flowRecords.length > 0, '生产入口已回写迁移结果');
+});
+
+test('生产入口 - loadAllDocuments 遇到损坏 localStorage 数据安全返回空数组', () => {
+    const harness = createProductionHarness({
+        document_registry_data: '{bad json!!!'
+    });
+
+    const allDocs = harness.context.loadAllDocuments();
+    const activeDocs = harness.context.getDocuments();
+    ok(Array.isArray(allDocs), '生产入口返回数组');
+    ok(Array.isArray(activeDocs), 'getDocuments 返回数组');
+    equal(allDocs.length, 0);
+    equal(activeDocs.length, 0);
+});
+
+test('生产入口 - saveDocuments 写入后 loadAllDocuments 可回读迁移结果', () => {
+    const harness = createProductionHarness();
+    const docs = generateImportData(12, 200);
+
+    harness.context.saveDocuments(docs);
+    const loaded = harness.context.loadAllDocuments();
+
+    equal(loaded.length, 12);
+    equal(loaded[0].docNumber, docs[0].docNumber);
+    ok(loaded[0].flowStatus, '生产入口回读时执行迁移');
+    ok(harness.store.document_registry_data && harness.store.document_registry_data.length > 0, '生产入口写入 localStorage');
+});
+
+test('生产入口 - getDocuments 过滤软删除文档', () => {
+    const docs = generateImportData(6, 300);
+    docs[1].isDeleted = true;
+    docs[4].isDeleted = true;
+    const harness = createProductionHarness({
+        document_registry_data: JSON.stringify(docs)
+    });
+
+    const activeDocs = harness.context.getDocuments();
+    equal(activeDocs.length, 4);
+    ok(activeDocs.every(function(doc) { return !doc.isDeleted; }), '生产入口只返回未删除文档');
+});
+
+test('生产入口 - updateStats 写入统计卡片和 tab 徽标', () => {
+    const statsDocs = [
+        generateImportData(1, 400)[0],
+        { ...generateImportData(1, 401)[0], flowStatus: FLOW_STATUS.PROCESSING, deadline: '2026-06-08' },
+        { ...generateImportData(1, 402)[0], flowStatus: FLOW_STATUS.PENDING_FEEDBACK, deadline: '2026-06-01' },
+        { ...generateImportData(1, 403)[0], flowStatus: FLOW_STATUS.DONE, deadline: '2026-06-01', completed: true }
+    ];
+    statsDocs[0].flowStatus = FLOW_STATUS.PENDING_REVIEW;
+    statsDocs[0].deadline = '2026-06-20';
+
+    const harness = createProductionHarness({
+        document_registry_data: JSON.stringify(statsDocs)
+    });
+
+    harness.context.updateStats();
+
+    equal(harness.elements.pendingCount.textContent, 1);
+    equal(harness.elements.processingCount.textContent, 1);
+    equal(harness.elements.feedbackCount.textContent, 1);
+    equal(harness.elements.doneCount.textContent, 1);
+    equal(harness.elements.totalCount.textContent, 4);
+    equal(harness.elements.urgentCount.textContent, 2);
+    equal(harness.elements.tabPendingReviewBadge.textContent, 1);
+    equal(harness.elements.tabProcessingBadge.textContent, 1);
+    equal(harness.elements.tabFeedbackBadge.textContent, 1);
+    equal(harness.elements.tabDoneBadge.textContent, 1);
+    equal(harness.elements.tabUrgentBadge.textContent, 2);
 });
 
 console.log('\n==============================================');

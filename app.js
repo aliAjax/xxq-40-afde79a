@@ -161,7 +161,13 @@ function migrateDocument(doc) {
 function loadAllDocuments() {
     const data = localStorage.getItem(STORAGE_KEY);
     if (!data) return [];
-    const documents = JSON.parse(data);
+    let documents;
+    try {
+        documents = JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+    if (!Array.isArray(documents)) return [];
     const migratedDocs = documents.map(function(doc) {
         return migrateDocument(doc);
     });
