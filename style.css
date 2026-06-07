@@ -1683,6 +1683,22 @@ body {
     flex-shrink: 0;
 }
 
+.import-template-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: #f6ffed;
+    border: 1px solid #b7eb8f;
+    border-radius: 8px;
+}
+
+.import-template-hint {
+    font-size: 13px;
+    color: #52c41a;
+}
+
 .wizard-footer {
     justify-content: space-between;
 }

@@ -3891,6 +3891,10 @@ function executeBatchDepartment(e) {
         showToast('请选择承办科室', 'error');
         return;
     }
+    if (!isDepartmentActive(newDepartment)) {
+        showToast('所选科室已停用，不能用于批量修改', 'error');
+        return;
+    }
 
     const allDocs = loadAllDocuments();
     const count = selectedIds.length;
@@ -4152,6 +4156,23 @@ function executeBatchFlowAction(e) {
     const handler = document.getElementById('batchFlowHandler')?.value.trim() || '';
     const department = document.getElementById('batchFlowDepartment')?.value || '';
     const coDepartments = getBatchFlowSelectedCoDepartments();
+
+    const needsDeptActions = [BATCH_FLOW_ACTION.PROPOSE, BATCH_FLOW_ACTION.TRANSFER];
+    if (needsDeptActions.includes(currentBatchFlowAction)) {
+        if (!department) {
+            showToast('请选择科室', 'error');
+            return;
+        }
+        if (!isDepartmentActive(department)) {
+            showToast('所选科室已停用，不能用于批量流转', 'error');
+            return;
+        }
+        const disabledCoDepts = coDepartments.filter(function(d) { return !isDepartmentActive(d); });
+        if (disabledCoDepts.length > 0) {
+            showToast('协办科室包含已停用科室：' + disabledCoDepts.join('、'), 'error');
+            return;
+        }
+    }
 
     const allDocs = loadAllDocuments();
     const now = new Date().toISOString();
@@ -5281,6 +5302,10 @@ function executeFlowAction(e) {
             showToast('请选择科室', 'error');
             return;
         }
+        if (!isDepartmentActive(department)) {
+            showToast('所选科室已停用，不能用于流转', 'error');
+            return;
+        }
     }
 
     if (currentFlowAction.toStatus === FLOW_STATUS.DONE && !opinion) {
@@ -5523,6 +5548,31 @@ function saveDocument(e) {
     }
 
     const documents = loadAllDocuments();
+    const existingDoc = id ? documents.find(d => d.id === id && !d.isDeleted) : null;
+    const isEdit = !!existingDoc;
+
+    const oldMainDept = existingDoc ? (existingDoc.undertakingDepartment || existingDoc.department) : '';
+    const oldProposedDept = existingDoc ? existingDoc.proposedDepartment : '';
+    const oldCoDepts = existingDoc ? (existingDoc.coDepartments || []) : [];
+
+    if (mainDept && (mainDept !== oldMainDept) && !isDepartmentActive(mainDept)) {
+        showToast('承办科室"' + mainDept + '"已停用，不能用于新增/编辑收文', 'error');
+        return;
+    }
+
+    if (proposedDepartment && (proposedDepartment !== oldProposedDept) && !isDepartmentActive(proposedDepartment)) {
+        showToast('拟办科室"' + proposedDepartment + '"已停用', 'error');
+        return;
+    }
+
+    const newCoDeptSet = new Set(coDepartments);
+    const oldCoDeptSet = new Set(oldCoDepts);
+    const addedCoDepts = coDepartments.filter(function(d) { return !oldCoDeptSet.has(d); });
+    const disabledAddedCoDepts = addedCoDepts.filter(function(d) { return !isDepartmentActive(d); });
+    if (disabledAddedCoDepts.length > 0) {
+        showToast('新增的协办科室包含已停用科室：' + disabledAddedCoDepts.join('、'), 'error');
+        return;
+    }
 
     if (id) {
         const index = documents.findIndex(d => d.id === id && !d.isDeleted);
@@ -6280,7 +6330,11 @@ function getWizardSystemFields() {
     ];
 }
 
-const WIZARD_SYSTEM_FIELDS = getWizardSystemFields();
+let WIZARD_SYSTEM_FIELDS = getWizardSystemFields();
+
+function refreshWizardSystemFields() {
+    WIZARD_SYSTEM_FIELDS = getWizardSystemFields();
+}
 
 const HEADER_ALIAS_MAP = {
     'fromUnit': ['来文单位', '发文单位', '来文机关', '发文机关', '单位', 'fromUnit', 'from_unit'],
@@ -6304,6 +6358,8 @@ function openImportModal() {
     wizardValidatedData = [];
     currentPreviewFilter = 'all';
 
+    refreshWizardSystemFields();
+
     document.getElementById('importCsvText').value = '';
     document.getElementById('importFileInput').value = '';
     document.getElementById('selectedFileName').style.display = 'none';
@@ -6325,6 +6381,33 @@ function closeImportModal() {
     wizardFieldMapping = {};
     wizardMappedData = [];
     wizardValidatedData = [];
+}
+
+function downloadImportTemplate() {
+    refreshWizardSystemFields();
+    const activeDepts = getActiveDepartments();
+    const headers = WIZARD_SYSTEM_FIELDS.map(function(f) { return f.label; });
+    const sampleRow = [
+        'XX市政府办公室',
+        '市政发〔2024〕1号',
+        '关于做好2024年度工作的通知',
+        '2024-01-15',
+        '普通',
+        activeDepts[0] || '',
+        activeDepts[1] || activeDepts[0] || '',
+        activeDepts.length > 2 ? activeDepts.slice(0, 2).join(';') : '',
+        '2024-02-15',
+        '请尽快办理'
+    ];
+
+    const csvContent = '\uFEFF' + headers.join(',') + '\n' + sampleRow.map(function(cell) {
+        if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+            return '"' + cell.replace(/"/g, '""') + '"';
+        }
+        return cell;
+    }).join(',');
+
+    downloadFile(csvContent, '收文导入模板.csv', 'text/csv;charset=utf-8');
 }
 
 function switchImportTab(tab) {
@@ -6780,12 +6863,16 @@ function validateWizardData() {
 
         if (row.proposedDepartment && !isValidDepartment(row.proposedDepartment)) {
             warnings.push('拟办科室"' + row.proposedDepartment + '"未知');
+        } else if (row.proposedDepartment && !isDepartmentActive(row.proposedDepartment)) {
+            warnings.push('拟办科室"' + row.proposedDepartment + '"已停用');
         }
 
         if (!row.undertakingDepartment) {
             errors.push('承办科室不能为空');
         } else if (!isValidDepartment(row.undertakingDepartment)) {
             errors.push('承办科室无效');
+        } else if (!isDepartmentActive(row.undertakingDepartment)) {
+            errors.push('承办科室"' + row.undertakingDepartment + '"已停用，不能用于新增收文');
         }
 
         if (row.coDepartments && row.coDepartments.length > 0) {
@@ -6794,6 +6881,12 @@ function validateWizardData() {
             });
             if (invalidCoDepts.length > 0) {
                 warnings.push('协办科室存在未知科室：' + invalidCoDepts.join('、'));
+            }
+            const disabledCoDepts = row.coDepartments.filter(function(d) {
+                return isValidDepartment(d) && !isDepartmentActive(d);
+            });
+            if (disabledCoDepts.length > 0) {
+                warnings.push('协办科室存在已停用科室：' + disabledCoDepts.join('、'));
             }
         }
 
