@@ -2066,19 +2066,25 @@ function addFlowRecord(docId, action, opinion, handler, department, toStatus, co
     return { success: true, doc: doc };
 }
 
+function hasProposeFlowRecord(doc) {
+    return Array.isArray(doc.flowRecords) && doc.flowRecords.some(function(record) {
+        return record.action === FLOW_ACTION.PROPOSE;
+    });
+}
+
 function getAvailableFlowActions(doc) {
     const status = doc.flowStatus;
     const actions = [];
     const requirePropose = isProposeRequiredBeforeAssign();
-    const hasProposed = doc.proposedDepartment && doc.proposedDepartment.length > 0;
+    const hasProposeRecord = hasProposeFlowRecord(doc);
 
     if (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING) {
-        if (!hasProposed || status === FLOW_STATUS.PENDING_REVIEW) {
+        if (!hasProposeRecord || status === FLOW_STATUS.PENDING_REVIEW) {
             actions.push({
                 key: 'propose',
-                label: hasProposed ? '重新拟办' : '拟办',
+                label: hasProposeRecord ? '重新拟办' : '拟办',
                 icon: '💡',
-                description: hasProposed ? '修改拟办科室和处理意见' : '指定拟办科室和处理意见',
+                description: hasProposeRecord ? '修改拟办科室和处理意见' : '指定拟办科室和处理意见',
                 toStatus: status === FLOW_STATUS.PENDING_REVIEW ? FLOW_STATUS.PROCESSING : null,
                 needsDepartment: true,
                 departmentLabel: '拟办科室'
@@ -2086,7 +2092,7 @@ function getAvailableFlowActions(doc) {
         }
     }
 
-    const canAssign = !requirePropose || hasProposed;
+    const canAssign = !requirePropose || hasProposeRecord;
     if (canAssign && (status === FLOW_STATUS.PENDING_REVIEW || status === FLOW_STATUS.PROCESSING)) {
         actions.push({
             key: 'assign',
@@ -3617,7 +3623,7 @@ function processRestoreFile(file) {
 
             const validDocs = docs.filter(function(doc) {
                 return doc.fromUnit && doc.docNumber && doc.title &&
-                    doc.receiveDate && doc.urgency && doc.department && doc.deadline;
+                    doc.receiveDate && doc.urgency && doc.department;
             });
 
             if (validDocs.length === 0) {
@@ -3634,12 +3640,21 @@ function processRestoreFile(file) {
                     receiveDate: doc.receiveDate,
                     urgency: doc.urgency,
                     department: doc.department,
-                    deadline: doc.deadline,
+                    deadline: doc.deadline || '',
                     remark: doc.remark || '',
-                    completed: doc.completed || false,
+                    completed: doc.completed === true,
                     completedAt: doc.completedAt || null,
                     completedRemark: doc.completedRemark || '',
                     processingRecords: doc.processingRecords || [],
+                    flowStatus: doc.flowStatus || null,
+                    flowRecords: Array.isArray(doc.flowRecords) ? doc.flowRecords : [],
+                    proposedDepartment: doc.proposedDepartment || '',
+                    undertakingDepartment: doc.undertakingDepartment || doc.department || '',
+                    coDepartments: Array.isArray(doc.coDepartments) ? doc.coDepartments : [],
+                    reminderNote: doc.reminderNote || '',
+                    snoozeUntil: doc.snoozeUntil || '',
+                    extendedDeadline: doc.extendedDeadline || '',
+                    reminderHistory: Array.isArray(doc.reminderHistory) ? doc.reminderHistory : [],
                     createdAt: doc.createdAt || null
                 };
             });
@@ -3900,6 +3915,10 @@ function confirmRestore() {
                 proposedDepartment: item.proposedDepartment || '',
                 undertakingDepartment: item.undertakingDepartment || item.department || '',
                 coDepartments: item.coDepartments || [],
+                reminderNote: item.reminderNote || '',
+                snoozeUntil: item.snoozeUntil || '',
+                extendedDeadline: item.extendedDeadline || '',
+                reminderHistory: item.reminderHistory || [],
                 isDeleted: false,
                 deletedAt: null,
                 createdAt: item.createdAt || new Date().toISOString()
