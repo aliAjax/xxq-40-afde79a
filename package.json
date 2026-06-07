@@ -1,0 +1,10 @@
+{
+  "name": "document-registry",
+  "version": "1.0.0",
+  "description": "收文登记管理系统",
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "check": "./scripts/check.sh"
+  },
+  "license": "MIT"
+}
