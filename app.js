@@ -5716,7 +5716,7 @@ function confirmRestore() {
     }
 
     const totalAdded = docAdded + tplAdded + auditAdded + flowAdded + viewAdded;
-    const totalOver = docOverwritten + tplOverwritten + auditOverwritten + flowOver + viewOverwritten;
+    const totalOver = docOverwritten + tplOverwritten + auditOverwritten + flowOverwritten + viewOverwritten;
     const totalSkip = docSkipped + tplSkipped + auditSkipped + flowSkipped + viewSkipped;
 
     if (docAdded + docOverwritten > 0) {
@@ -5921,8 +5921,12 @@ function restoreTemplates(overwrite) {
 function restoreAuditLogs(overwrite) {
     const existing = getAuditLogs();
     const existingById = {};
-    existing.forEach(function(log) {
-        if (log.id) existingById[log.id] = true;
+    const indexById = {};
+    existing.forEach(function(log, i) {
+        if (log.id) {
+            existingById[log.id] = log;
+            indexById[log.id] = i;
+        }
     });
 
     let addCount = 0, overwriteCount = 0, skipCount = 0;
@@ -5937,6 +5941,10 @@ function restoreAuditLogs(overwrite) {
             finalLogs.push({ ...item, id: item.id || generateId() });
             addCount++;
         } else if (overwrite) {
+            const idx = indexById[item.id];
+            if (idx !== undefined) {
+                finalLogs[idx] = { ...existingById[item.id], ...item, id: item.id };
+            }
             overwriteCount++;
         } else {
             skipCount++;
