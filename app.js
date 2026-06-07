@@ -1677,7 +1677,7 @@ function renderDepartmentBoard() {
                         <div class="board-load-number ${s.overdueRate >= 30 ? 'high-risk' : s.overdueRate >= 15 ? 'warn' : ''}">${s.overdueRate}%</div>
                         <div class="board-load-label">逾期率</div>
                     </div>
-                    <div class="board-load-item" title="平均办理天数">
+                    <div class="board-load-item clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'avgDays')" title="点击查看按办理天数排序">
                         <div class="board-load-number avg-days">${s.avgProcessingDays}</div>
                         <div class="board-load-label">平均办理天数</div>
                     </div>
@@ -1787,6 +1787,11 @@ function drillDepartmentMetric(dept, metric) {
             extraFilterInfo = '高风险';
             boardDrillContext.highRiskOnly = true;
             break;
+        case 'avgDays':
+            tab = 'all';
+            extraFilterInfo = '按办理天数排序';
+            boardDrillContext.sortByProcessingDays = true;
+            break;
     }
 
     detachFromViewPreset();
@@ -1829,11 +1834,34 @@ function hideDrillIndicator() {
 }
 
 function returnToBoard() {
-    if (boardDrillContext && boardDrillContext.previousFilter) {
-        if (!boardDrillContext.previousFilter.department) {
-            advancedFilter.department = '';
-            document.getElementById('filterDepartment').value = '';
+    if (boardDrillContext) {
+        currentTab = boardDrillContext.previousTab || 'all';
+        searchKeyword = boardDrillContext.previousKeyword || '';
+        if (boardDrillContext.previousFilter) {
+            advancedFilter = { ...boardDrillContext.previousFilter };
         }
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) searchInput.value = searchKeyword;
+        const filterDeptEl = document.getElementById('filterDepartment');
+        if (filterDeptEl) filterDeptEl.value = advancedFilter.department || '';
+        const filterUrgencyEl = document.getElementById('filterUrgency');
+        if (filterUrgencyEl) filterUrgencyEl.value = advancedFilter.urgency || '';
+        const filterReceiveStartEl = document.getElementById('filterReceiveDateStart');
+        if (filterReceiveStartEl) filterReceiveStartEl.value = advancedFilter.receiveDateStart || '';
+        const filterReceiveEndEl = document.getElementById('filterReceiveDateEnd');
+        if (filterReceiveEndEl) filterReceiveEndEl.value = advancedFilter.receiveDateEnd || '';
+        const filterDeadlineStartEl = document.getElementById('filterDeadlineStart');
+        if (filterDeadlineStartEl) filterDeadlineStartEl.value = advancedFilter.deadlineStart || '';
+        const filterDeadlineEndEl = document.getElementById('filterDeadlineEnd');
+        if (filterDeadlineEndEl) filterDeadlineEndEl.value = advancedFilter.deadlineEnd || '';
+
+        document.querySelectorAll('.tab').forEach(t => {
+            t.classList.remove('active');
+        });
+        const activeTab = document.querySelector(`.tab[data-tab="${currentTab}"]`);
+        if (activeTab) activeTab.classList.add('active');
+
+        updateFilterActiveBadge();
     }
     boardDrillContext = null;
     hideDrillIndicator();
@@ -1841,7 +1869,12 @@ function returnToBoard() {
 }
 
 function isDrillFilterActive() {
-    return boardDrillContext && (boardDrillContext.overdueOnly || boardDrillContext.recent7DaysOnly || boardDrillContext.highRiskOnly);
+    return boardDrillContext && (
+        boardDrillContext.overdueOnly ||
+        boardDrillContext.recent7DaysOnly ||
+        boardDrillContext.highRiskOnly ||
+        boardDrillContext.sortByProcessingDays
+    );
 }
 
 function applyDrillFilters(docs) {
@@ -1869,6 +1902,30 @@ function applyDrillFilters(docs) {
     }
 
     return filtered;
+}
+
+function applyDrillSorting(docs) {
+    if (!boardDrillContext || !boardDrillContext.sortByProcessingDays) return docs;
+
+    const sorted = docs.slice().sort(function(a, b) {
+        const daysA = getDocProcessingDays(a);
+        const daysB = getDocProcessingDays(b);
+        return daysB - daysA;
+    });
+
+    return sorted;
+}
+
+function clearDrillSpecialFilters() {
+    if (!boardDrillContext) return;
+    boardDrillContext.overdueOnly = false;
+    boardDrillContext.recent7DaysOnly = false;
+    boardDrillContext.highRiskOnly = false;
+    boardDrillContext.sortByProcessingDays = false;
+    boardDrillContext.metric = 'all';
+    if (boardDrillContext.dept) {
+        updateDrillIndicator(boardDrillContext.dept, '全部');
+    }
 }
 
 let switchingFromPreset = false;
@@ -1932,6 +1989,8 @@ function switchView(view) {
         documentList.style.display = 'block';
         auditLogSection.style.display = 'none';
         recycleBinSection.style.display = 'none';
+        boardDrillContext = null;
+        hideDrillIndicator();
         renderDepartmentBoard();
     } else {
         if (viewSwitcher) viewSwitcher.style.display = 'flex';
@@ -1949,6 +2008,19 @@ function switchView(view) {
 }
 
 function viewDepartmentDocuments(dept) {
+    boardDrillContext = {
+        dept: dept,
+        metric: 'all',
+        fromBoard: true,
+        previousTab: currentTab,
+        previousFilter: { ...advancedFilter },
+        previousKeyword: searchKeyword,
+        overdueOnly: false,
+        recent7DaysOnly: false,
+        highRiskOnly: false,
+        sortByProcessingDays: false
+    };
+
     advancedFilter.department = dept;
     document.getElementById('filterDepartment').value = dept;
     detachFromViewPreset();
@@ -1956,6 +2028,8 @@ function viewDepartmentDocuments(dept) {
     switchView('list');
     switchTab('all');
     selectedIds = [];
+
+    updateDrillIndicator(dept, '全部');
 }
 
 function filterDocuments(documents, tab, keyword, filter) {
@@ -2044,6 +2118,7 @@ function renderDocumentList() {
     const documents = getDocuments();
     let filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
     filtered = applyDrillFilters(filtered);
+    filtered = applyDrillSorting(filtered);
     const listEl = document.getElementById('documentList');
 
     if (filtered.length === 0) {
@@ -2506,6 +2581,9 @@ function switchTab(tab) {
     if (currentViewPresetId) {
         detachFromViewPreset();
     }
+    if (boardDrillContext && currentView === 'list') {
+        clearDrillSpecialFilters();
+    }
     if (currentView === 'board') {
         renderDepartmentBoard();
     } else {
@@ -2517,6 +2595,9 @@ function searchDocuments() {
     searchKeyword = document.getElementById('searchInput').value.trim();
     selectedIds = [];
     detachFromViewPreset();
+    if (boardDrillContext && currentView === 'list') {
+        clearDrillSpecialFilters();
+    }
     if (currentView === 'list') {
         renderDocumentList();
     } else if (currentView === 'board') {
@@ -2535,7 +2616,10 @@ function toggleAdvancedFilter() {
 }
 
 function applyAdvancedFilter() {
-    advancedFilter.department = document.getElementById('filterDepartment').value;
+    const newDepartment = document.getElementById('filterDepartment').value;
+    const deptChanged = boardDrillContext && boardDrillContext.dept !== newDepartment;
+
+    advancedFilter.department = newDepartment;
     advancedFilter.urgency = document.getElementById('filterUrgency').value;
     advancedFilter.receiveDateStart = document.getElementById('filterReceiveDateStart').value;
     advancedFilter.receiveDateEnd = document.getElementById('filterReceiveDateEnd').value;
@@ -2544,6 +2628,16 @@ function applyAdvancedFilter() {
     selectedIds = [];
     detachFromViewPreset();
     updateFilterActiveBadge();
+
+    if (boardDrillContext && currentView === 'list') {
+        if (deptChanged || !newDepartment) {
+            boardDrillContext = null;
+            hideDrillIndicator();
+        } else {
+            clearDrillSpecialFilters();
+        }
+    }
+
     if (currentView === 'list') {
         renderDocumentList();
     } else if (currentView === 'board') {
@@ -2569,6 +2663,10 @@ function clearAdvancedFilter() {
     selectedIds = [];
     detachFromViewPreset();
     updateFilterActiveBadge();
+    if (boardDrillContext && currentView === 'list') {
+        boardDrillContext = null;
+        hideDrillIndicator();
+    }
     if (currentView === 'list') {
         renderDocumentList();
     } else if (currentView === 'board') {
