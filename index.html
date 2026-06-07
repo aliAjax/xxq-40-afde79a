@@ -235,15 +235,30 @@
                     <span class="board-title-icon">🏢</span>
                     科室工作量统计
                 </div>
-                <div class="board-subtitle">点击科室卡片可查看该科室的全部收文</div>
+                <div class="board-subtitle">
+                    <span class="board-subtitle-highlight">💡 钻取分析：</span>
+                    点击指标可查看对应筛选列表，点击「返回看板」回到本页
+                </div>
             </div>
             <div class="board-legend">
-                <div class="legend-item"><span class="legend-dot pending"></span>待拟办</div>
-                <div class="legend-item"><span class="legend-dot processing"></span>办理中</div>
-                <div class="legend-item"><span class="legend-dot feedback"></span>待反馈</div>
-                <div class="legend-item"><span class="legend-dot urgent"></span>即将到期</div>
-                <div class="legend-item"><span class="legend-dot overdue"></span>已逾期</div>
-                <div class="legend-item"><span class="legend-dot done"></span>已办结</div>
+                <div class="legend-group">
+                    <span class="legend-group-title">状态分布：</span>
+                    <div class="legend-item"><span class="legend-dot pending"></span>待拟办</div>
+                    <div class="legend-item"><span class="legend-dot processing"></span>办理中</div>
+                    <div class="legend-item"><span class="legend-dot feedback"></span>待反馈</div>
+                    <div class="legend-item"><span class="legend-dot done"></span>已办结</div>
+                </div>
+                <div class="legend-group">
+                    <span class="legend-group-title">期限状态：</span>
+                    <div class="legend-item"><span class="legend-dot urgent"></span>即将到期</div>
+                    <div class="legend-item"><span class="legend-dot overdue"></span>已逾期</div>
+                </div>
+                <div class="legend-group">
+                    <span class="legend-group-title">负荷预警：</span>
+                    <div class="legend-item"><span class="legend-dot high-risk"></span>高风险</div>
+                    <div class="legend-item"><span class="legend-dot warn"></span>中等</div>
+                    <div class="legend-item"><span class="legend-dot normal"></span>正常</div>
+                </div>
             </div>
             <div class="board-cards" id="boardCards">
             </div>

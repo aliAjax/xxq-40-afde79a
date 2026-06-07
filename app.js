@@ -1494,10 +1494,41 @@ function updateStats() {
     }
 }
 
+function isHighRiskDoc(doc) {
+    const deadlineStatus = getDeadlineStatus(doc);
+    const hasPendingSup = hasPendingSupervision(doc);
+    if (hasPendingSup) return true;
+    if (deadlineStatus === 'overdue' && doc.urgency === '特急') return true;
+    return false;
+}
+
+function getDocProcessingDays(doc) {
+    const receiveDate = new Date(doc.receiveDate);
+    receiveDate.setHours(0, 0, 0, 0);
+    let endDate;
+    if (doc.flowStatus === FLOW_STATUS.DONE && doc.completedAt) {
+        endDate = new Date(doc.completedAt);
+    } else {
+        endDate = new Date();
+    }
+    endDate.setHours(0, 0, 0, 0);
+    const diffTime = endDate - receiveDate;
+    const diffDays = Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    return diffDays;
+}
+
+function get7DaysAgo() {
+    const date = new Date();
+    date.setDate(date.getDate() - 7);
+    date.setHours(0, 0, 0, 0);
+    return date;
+}
+
 function getDepartmentStats() {
     const documents = getDocuments();
     const filteredDocs = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
     const stats = {};
+    const sevenDaysAgo = get7DaysAgo();
 
     DEPARTMENT_LIST.forEach(dept => {
         stats[dept] = {
@@ -1507,7 +1538,13 @@ function getDepartmentStats() {
             urgent: 0,
             overdue: 0,
             done: 0,
-            total: 0
+            total: 0,
+            recent7DaysNew: 0,
+            overdueRate: 0,
+            avgProcessingDays: 0,
+            highRiskCount: 0,
+            _processingDaysTotal: 0,
+            _processingDaysCount: 0
         };
     });
 
@@ -1523,7 +1560,13 @@ function getDepartmentStats() {
                 urgent: 0,
                 overdue: 0,
                 done: 0,
-                total: 0
+                total: 0,
+                recent7DaysNew: 0,
+                overdueRate: 0,
+                avgProcessingDays: 0,
+                highRiskCount: 0,
+                _processingDaysTotal: 0,
+                _processingDaysCount: 0
             };
         }
 
@@ -1547,10 +1590,37 @@ function getDepartmentStats() {
         } else if (deadlineStatus === 'overdue') {
             stats[dept].overdue++;
         }
+
+        const createdAt = new Date(doc.createdAt || doc.receiveDate);
+        if (createdAt >= sevenDaysAgo) {
+            stats[dept].recent7DaysNew++;
+        }
+
+        if (isHighRiskDoc(doc)) {
+            stats[dept].highRiskCount++;
+        }
+
+        if (doc.receiveDate) {
+            const days = getDocProcessingDays(doc);
+            stats[dept]._processingDaysTotal += days;
+            stats[dept]._processingDaysCount++;
+        }
+    });
+
+    DEPARTMENT_LIST.forEach(dept => {
+        if (stats[dept]) {
+            const s = stats[dept];
+            s.overdueRate = s.total > 0 ? Math.round(s.overdue / s.total * 100) : 0;
+            s.avgProcessingDays = s._processingDaysCount > 0 ? Math.round(s._processingDaysTotal / s._processingDaysCount * 10) / 10 : 0;
+            delete s._processingDaysTotal;
+            delete s._processingDaysCount;
+        }
     });
 
     return stats;
 }
+
+let boardDrillContext = null;
 
 function renderDepartmentBoard() {
     const stats = getDepartmentStats();
@@ -1571,51 +1641,234 @@ function renderDepartmentBoard() {
     }
 
     boardCards.innerHTML = allDepts.map(dept => {
-        const s = stats[dept] || { pending_review: 0, processing: 0, pending_feedback: 0, urgent: 0, overdue: 0, done: 0, total: 0 };
+        const s = stats[dept] || {
+            pending_review: 0, processing: 0, pending_feedback: 0,
+            urgent: 0, overdue: 0, done: 0, total: 0,
+            recent7DaysNew: 0, overdueRate: 0, avgProcessingDays: 0, highRiskCount: 0
+        };
         const hasData = s.total > 0;
-        const processingTotal = s.pending_review + s.processing + s.pending_feedback;
+        const doneRate = s.total > 0 ? Math.round(s.done / s.total * 100) : 0;
+
+        const loadLevel = s.overdueRate >= 30 || s.highRiskCount >= 3 ? 'high' :
+                         (s.overdueRate >= 15 || s.highRiskCount >= 1 ? 'medium' : 'normal');
+
         return `
-            <div class="board-card ${hasData ? '' : 'board-card-empty'}" onclick="${hasData ? `viewDepartmentDocuments('${dept}')` : ''}">
+            <div class="board-card board-card-load-${loadLevel} ${hasData ? '' : 'board-card-empty'}" data-dept="${escapeHtml(dept)}">
                 <div class="board-card-header">
-                    <div class="board-dept-name">${escapeHtml(dept)}</div>
+                    <div class="board-dept-name">
+                        ${escapeHtml(dept)}
+                        ${hasData && s.highRiskCount > 0 ? '<span class="board-high-risk-badge">⚠ 高风险</span>' : ''}
+                    </div>
                     <div class="board-dept-total">
                         <span class="board-total-number">${s.total}</span>
                         <span class="board-total-label">件</span>
                     </div>
                 </div>
+
+                <div class="board-card-section-title">
+                    <span class="section-title-icon">📈</span> 负荷预警
+                </div>
+                <div class="board-card-load-stats">
+                    <div class="board-load-item clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'recent7Days')" title="点击查看近7天新增收文">
+                        <div class="board-load-number recent">${s.recent7DaysNew}</div>
+                        <div class="board-load-label">近7天新增</div>
+                    </div>
+                    <div class="board-load-item clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'overdueRate')" title="点击查看逾期收文">
+                        <div class="board-load-number ${s.overdueRate >= 30 ? 'high-risk' : s.overdueRate >= 15 ? 'warn' : ''}">${s.overdueRate}%</div>
+                        <div class="board-load-label">逾期率</div>
+                    </div>
+                    <div class="board-load-item" title="平均办理天数">
+                        <div class="board-load-number avg-days">${s.avgProcessingDays}</div>
+                        <div class="board-load-label">平均办理天数</div>
+                    </div>
+                    <div class="board-load-item clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'highRisk')" title="点击查看高风险收文">
+                        <div class="board-load-number ${s.highRiskCount > 0 ? 'high-risk' : ''}">${s.highRiskCount}</div>
+                        <div class="board-load-label">高风险收文</div>
+                    </div>
+                </div>
+
+                <div class="board-card-section-title">
+                    <span class="section-title-icon">📋</span> 状态分布
+                </div>
                 <div class="board-card-stats">
-                    <div class="board-stat-item pending_review">
+                    <div class="board-stat-item pending_review clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'pending_review')" title="点击查看待拟办">
                         <div class="board-stat-number">${s.pending_review}</div>
                         <div class="board-stat-label">待拟办</div>
                     </div>
-                    <div class="board-stat-item processing">
+                    <div class="board-stat-item processing clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'processing')" title="点击查看办理中">
                         <div class="board-stat-number">${s.processing}</div>
                         <div class="board-stat-label">办理中</div>
                     </div>
-                    <div class="board-stat-item pending_feedback">
+                    <div class="board-stat-item pending_feedback clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'pending_feedback')" title="点击查看待反馈">
                         <div class="board-stat-number">${s.pending_feedback}</div>
                         <div class="board-stat-label">待反馈</div>
                     </div>
-                    <div class="board-stat-item done">
+                    <div class="board-stat-item done clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'done')" title="点击查看已办结">
                         <div class="board-stat-number">${s.done}</div>
                         <div class="board-stat-label">已办结</div>
                     </div>
                 </div>
+
                 <div class="board-card-urgent">
-                    ${s.urgent > 0 ? `<span class="board-urgent-tag urgent">即将到期 ${s.urgent}</span>` : ''}
-                    ${s.overdue > 0 ? `<span class="board-urgent-tag overdue">已逾期 ${s.overdue}</span>` : ''}
+                    ${s.urgent > 0 ? `<span class="board-urgent-tag urgent clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'urgent')" title="点击查看即将到期">即将到期 ${s.urgent}</span>` : ''}
+                    ${s.overdue > 0 ? `<span class="board-urgent-tag overdue clickable" onclick="event.stopPropagation(); drillDepartmentMetric('${dept}', 'overdue')" title="点击查看已逾期">已逾期 ${s.overdue}</span>` : ''}
                     ${s.urgent === 0 && s.overdue === 0 ? '<span class="board-urgent-tag normal">暂无超期</span>' : ''}
                 </div>
+
                 <div class="board-card-progress">
                     <div class="board-progress-bar">
-                        <div class="board-progress-fill done" style="width: ${s.total > 0 ? (s.done / s.total * 100) : 0}%"></div>
+                        <div class="board-progress-fill done" style="width: ${doneRate}%"></div>
                     </div>
-                    <div class="board-progress-text">办结率 ${s.total > 0 ? Math.round(s.done / s.total * 100) : 0}%</div>
+                    <div class="board-progress-text">办结率 ${doneRate}%</div>
                 </div>
-                ${hasData ? '<div class="board-card-action">查看详情 →</div>' : '<div class="board-card-empty-tip">暂无收文</div>'}
+
+                ${hasData ? `
+                    <div class="board-card-actions">
+                        <div class="board-card-action" onclick="event.stopPropagation(); viewDepartmentDocuments('${dept}')">
+                            查看全部 →
+                        </div>
+                    </div>
+                ` : '<div class="board-card-empty-tip">暂无收文</div>'}
             </div>
         `;
     }).join('');
+}
+
+function drillDepartmentMetric(dept, metric) {
+    boardDrillContext = {
+        dept: dept,
+        metric: metric,
+        fromBoard: true,
+        previousTab: currentTab,
+        previousFilter: { ...advancedFilter },
+        previousKeyword: searchKeyword
+    };
+
+    advancedFilter.department = dept;
+    document.getElementById('filterDepartment').value = dept;
+
+    let tab = 'all';
+    let extraFilterInfo = '';
+
+    switch (metric) {
+        case 'pending_review':
+            tab = 'pending_review';
+            extraFilterInfo = '待拟办';
+            break;
+        case 'processing':
+            tab = 'processing';
+            extraFilterInfo = '办理中';
+            break;
+        case 'pending_feedback':
+            tab = 'pending_feedback';
+            extraFilterInfo = '待反馈';
+            break;
+        case 'done':
+            tab = 'done';
+            extraFilterInfo = '已办结';
+            break;
+        case 'urgent':
+            tab = 'urgent';
+            extraFilterInfo = '即将到期';
+            break;
+        case 'overdue':
+        case 'overdueRate':
+            tab = 'urgent';
+            extraFilterInfo = '已逾期/即将到期';
+            boardDrillContext.overdueOnly = true;
+            break;
+        case 'recent7Days':
+            tab = 'all';
+            extraFilterInfo = '近7天新增';
+            boardDrillContext.recent7DaysOnly = true;
+            break;
+        case 'highRisk':
+            tab = 'all';
+            extraFilterInfo = '高风险';
+            boardDrillContext.highRiskOnly = true;
+            break;
+    }
+
+    detachFromViewPreset();
+    updateFilterActiveBadge();
+    switchView('list');
+    switchTab(tab);
+    selectedIds = [];
+
+    updateDrillIndicator(dept, extraFilterInfo);
+}
+
+function updateDrillIndicator(dept, filterInfo) {
+    let indicator = document.getElementById('drillIndicator');
+    if (!indicator) {
+        const listTabs = document.getElementById('listTabs');
+        if (!listTabs) return;
+        indicator = document.createElement('div');
+        indicator.id = 'drillIndicator';
+        indicator.className = 'drill-indicator';
+        listTabs.parentNode.insertBefore(indicator, listTabs.nextSibling);
+    }
+
+    indicator.innerHTML = `
+        <span class="drill-crumb" onclick="returnToBoard()">
+            ← 返回科室看板
+        </span>
+        <span class="drill-separator">/</span>
+        <span class="drill-dept">${escapeHtml(dept)}</span>
+        <span class="drill-separator">/</span>
+        <span class="drill-filter">${escapeHtml(filterInfo)}</span>
+    `;
+    indicator.style.display = 'flex';
+}
+
+function hideDrillIndicator() {
+    const indicator = document.getElementById('drillIndicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
+function returnToBoard() {
+    if (boardDrillContext && boardDrillContext.previousFilter) {
+        if (!boardDrillContext.previousFilter.department) {
+            advancedFilter.department = '';
+            document.getElementById('filterDepartment').value = '';
+        }
+    }
+    boardDrillContext = null;
+    hideDrillIndicator();
+    switchView('board');
+}
+
+function isDrillFilterActive() {
+    return boardDrillContext && (boardDrillContext.overdueOnly || boardDrillContext.recent7DaysOnly || boardDrillContext.highRiskOnly);
+}
+
+function applyDrillFilters(docs) {
+    if (!boardDrillContext) return docs;
+
+    let filtered = docs;
+
+    if (boardDrillContext.overdueOnly) {
+        filtered = filtered.filter(doc => {
+            const deadlineStatus = getDeadlineStatus(doc);
+            return deadlineStatus === 'overdue';
+        });
+    }
+
+    if (boardDrillContext.recent7DaysOnly) {
+        const sevenDaysAgo = get7DaysAgo();
+        filtered = filtered.filter(doc => {
+            const createdAt = new Date(doc.createdAt || doc.receiveDate);
+            return createdAt >= sevenDaysAgo;
+        });
+    }
+
+    if (boardDrillContext.highRiskOnly) {
+        filtered = filtered.filter(doc => isHighRiskDoc(doc));
+    }
+
+    return filtered;
 }
 
 let switchingFromPreset = false;
@@ -1789,7 +2042,8 @@ function hasAdvancedFilter() {
 
 function renderDocumentList() {
     const documents = getDocuments();
-    const filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
+    let filtered = filterDocuments(documents, currentTab, searchKeyword, advancedFilter);
+    filtered = applyDrillFilters(filtered);
     const listEl = document.getElementById('documentList');
 
     if (filtered.length === 0) {
@@ -1870,7 +2124,13 @@ function renderDocumentList() {
             <span class="doc-tag supervision-pending">督办中</span>
         ` : '';
 
-        const cardClass = deadlineStatus === 'overdue' ? 'deadline-overdue-card' :
+        const isHighRisk = isHighRiskDoc(doc);
+        const highRiskTag = isHighRisk ? `
+            <span class="doc-tag high-risk-tag">⚠ 高风险</span>
+        ` : '';
+
+        const cardClass = isHighRisk ? 'high-risk-card' :
+                          deadlineStatus === 'overdue' ? 'deadline-overdue-card' :
                           deadlineStatus === 'urgent' ? 'deadline-urgent-card' : '';
 
         return `
@@ -1885,6 +2145,7 @@ function renderDocumentList() {
                         <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
                         ${deadlineTag}
                         ${supervisionTag}
+                        ${highRiskTag}
                     </div>
                 </div>
                 <div class="doc-info">
@@ -3484,6 +3745,8 @@ function viewDocument(id) {
 
     const hasPendingSup = hasPendingSupervision(doc);
     const flowTimelineCount = (doc.flowRecords || []).length + (doc.supervisionRecords || []).length;
+    const isHighRisk = isHighRiskDoc(doc);
+    const processingDays = getDocProcessingDays(doc);
 
     const detailContent = document.getElementById('detailContent');
     detailContent.innerHTML = `
@@ -3507,6 +3770,7 @@ function viewDocument(id) {
             <span class="detail-label">紧急程度</span>
             <span class="detail-value">
                 <span class="doc-tag urgency-${doc.urgency}">${doc.urgency}</span>
+                ${isHighRisk ? '<span class="doc-tag high-risk-tag">⚠ 高风险</span>' : ''}
             </span>
         </div>
         <div class="detail-item">
@@ -3517,6 +3781,10 @@ function viewDocument(id) {
                     `<span class="doc-tag deadline-${deadlineStatus}">${getDeadlineStatusText(deadlineStatus)}</span>` : ''}
                 ${hasPendingSup ? '<span class="doc-tag supervision-pending">督办中</span>' : ''}
             </span>
+        </div>
+        <div class="detail-item">
+            <span class="detail-label">办理时长</span>
+            <span class="detail-value">${processingDays} 天${isDone ? '（已办结）' : '（进行中）'}</span>
         </div>
         <div class="detail-item">
             <span class="detail-label">拟办科室</span>

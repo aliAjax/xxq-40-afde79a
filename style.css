@@ -2500,7 +2500,11 @@ body {
 
 @media (max-width: 1024px) {
     .board-cards {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .legend-group {
+        gap: 8px;
     }
 }
 
@@ -2522,13 +2526,27 @@ body {
         font-size: 18px;
     }
 
+    .board-subtitle {
+        font-size: 12px;
+    }
+
     .board-legend {
         gap: 12px;
         margin-bottom: 16px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .legend-group {
+        gap: 8px;
+    }
+
+    .legend-group-title {
+        min-width: 60px;
     }
 
     .board-cards {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: 1fr;
         gap: 12px;
     }
 
@@ -2555,6 +2573,25 @@ body {
     .board-stat-label {
         font-size: 11px;
     }
+
+    .board-load-number {
+        font-size: 16px;
+    }
+
+    .board-load-label {
+        font-size: 10px;
+    }
+
+    .board-card-section-title {
+        font-size: 11px;
+        margin: 10px 0 6px;
+    }
+
+    .drill-indicator {
+        font-size: 12px;
+        padding: 8px 12px;
+        flex-wrap: wrap;
+    }
 }
 
 @media (max-width: 480px) {
@@ -2564,6 +2601,10 @@ body {
 
     .board-card-stats {
         grid-template-columns: repeat(4, 1fr);
+    }
+
+    .board-card-load-stats {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
@@ -2791,6 +2832,16 @@ body {
 
 .document-card.deadline-overdue-card:hover {
     box-shadow: 0 4px 16px rgba(255, 77, 79, 0.15);
+}
+
+.document-card.high-risk-card {
+    background: linear-gradient(90deg, #fff1f0 0%, #fff 10%);
+    border-left: 4px solid #ff4d4f;
+    box-shadow: 0 2px 8px rgba(255, 77, 79, 0.1);
+}
+
+.document-card.high-risk-card:hover {
+    box-shadow: 0 4px 16px rgba(255, 77, 79, 0.2);
 }
 
 /* 5. "流转办理"操作按钮 */
@@ -3134,6 +3185,281 @@ body {
     color: #52c41a;
     border: 1px solid #b7eb8f;
 }
+
+.board-urgent-tag.clickable {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.board-urgent-tag.clickable:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.board-subtitle-highlight {
+    color: #1890ff;
+    font-weight: 500;
+}
+
+.board-legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.legend-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.legend-group-title {
+    font-size: 12px;
+    color: #999;
+    font-weight: 500;
+    margin-right: 4px;
+}
+
+.legend-dot.high-risk {
+    background: #ff4d4f;
+}
+
+.legend-dot.warn {
+    background: #faad14;
+}
+
+.legend-dot.normal {
+    background: #52c41a;
+}
+
+.legend-dot.feedback {
+    background: #fa8c16;
+}
+
+.board-card-section-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #666;
+    margin: 12px 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed #f0f0f0;
+}
+
+.section-title-icon {
+    font-size: 14px;
+}
+
+.board-card-load-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.board-load-item {
+    text-align: center;
+    padding: 8px 6px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #f0f0f0;
+}
+
+.board-load-item.clickable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.board-load-item.clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: #d9d9d9;
+}
+
+.board-load-number {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 2px;
+    color: #333;
+}
+
+.board-load-number.recent {
+    color: #1890ff;
+}
+
+.board-load-number.avg-days {
+    color: #722ed1;
+}
+
+.board-load-number.high-risk {
+    color: #ff4d4f;
+}
+
+.board-load-number.warn {
+    color: #faad14;
+}
+
+.board-load-label {
+    font-size: 11px;
+    color: #999;
+}
+
+.board-stat-item.clickable {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.board-stat-item.clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: #d9d9d9;
+}
+
+.board-high-risk-badge {
+    display: inline-block;
+    background: #fff1f0;
+    color: #ff4d4f;
+    border: 1px solid #ffa39e;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.board-card-load-high {
+    background: linear-gradient(135deg, #fff1f0 0%, #fff 100%);
+    border-color: #ffccc7;
+}
+
+.board-card-load-high::before {
+    background: linear-gradient(90deg, #ff4d4f 0%, #ff7875 100%);
+}
+
+.board-card-load-high:hover {
+    box-shadow: 0 8px 24px rgba(255, 77, 79, 0.15);
+    border-color: #ffa39e;
+}
+
+.board-card-load-medium {
+    background: linear-gradient(135deg, #fffbe6 0%, #fff 100%);
+    border-color: #ffe58f;
+}
+
+.board-card-load-medium::before {
+    background: linear-gradient(90deg, #faad14 0%, #ffd666 100%);
+}
+
+.board-card-load-medium:hover {
+    box-shadow: 0 8px 24px rgba(250, 173, 20, 0.15);
+    border-color: #ffd591;
+}
+
+.board-card-load-normal {
+    background: linear-gradient(135deg, #f6ffed 0%, #fff 100%);
+    border-color: #b7eb8f;
+}
+
+.board-card-load-normal::before {
+    background: linear-gradient(90deg, #52c41a 0%, #95de64 100%);
+}
+
+.board-card-load-normal:hover {
+    box-shadow: 0 8px 24px rgba(82, 196, 26, 0.15);
+    border-color: #b7eb8f;
+}
+
+.board-card-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed #ffccc7;
+}
+
+.board-card-load-medium .board-card-actions {
+    border-top-color: #ffe58f;
+}
+
+.board-card-load-normal .board-card-actions {
+    border-top-color: #b7eb8f;
+}
+
+.board-card-action {
+    text-align: center;
+    font-size: 13px;
+    color: #c41e3a;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.board-card-load-medium .board-card-action {
+    color: #d48806;
+}
+
+.board-card-load-normal .board-card-action {
+    color: #389e0d;
+}
+
+.board-card-action:hover {
+    text-decoration: underline;
+}
+
+.drill-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: linear-gradient(90deg, #e6f7ff 0%, #f0f5ff 100%);
+    border: 1px solid #91d5ff;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 13px;
+}
+
+.drill-crumb {
+    color: #1890ff;
+    cursor: pointer;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.drill-crumb:hover {
+    color: #096dd9;
+    text-decoration: underline;
+}
+
+.drill-separator {
+    color: #bfbfbf;
+}
+
+.drill-dept {
+    color: #333;
+    font-weight: 500;
+}
+
+.drill-filter {
+    color: #666;
+    background: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #d9d9d9;
+    font-size: 12px;
+}
+
 
 /* 10. 统计卡片新增颜色 */
 .stat-card.pending {
@@ -3575,6 +3901,23 @@ body {
     color: #d46b08;
     border-color: #ffd591;
     animation: pulse-supervision 2s ease-in-out infinite;
+}
+
+.doc-tag.high-risk-tag {
+    background: #fff1f0;
+    color: #cf1322;
+    border-color: #ffa39e;
+    font-weight: 600;
+    animation: pulse-high-risk 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-high-risk {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(255, 77, 79, 0);
+    }
 }
 
 @keyframes pulse-supervision {
