@@ -92,6 +92,9 @@
                 <button class="btn btn-default" onclick="switchView('recycle_bin')">
                     <span class="btn-icon">🗑</span> 回收站
                 </button>
+                <button class="btn btn-default" onclick="switchView('template_management')">
+                    <span class="btn-icon">📑</span> 模板管理
+                </button>
                 <div class="export-dropdown">
                     <button class="btn btn-default" onclick="toggleExportMenu()">
                         <span class="btn-icon">📤</span> 导出备份 <span class="dropdown-arrow">▼</span>
@@ -354,6 +357,28 @@
                     </div>
                 </div>
                 <div class="recycle-bin-list" id="recycleBinList">
+                </div>
+            </div>
+
+            <div class="template-management-section" id="templateManagementSection" style="display: none;">
+                <div class="section-header">
+                    <div class="section-title">
+                        <span class="section-title-icon">📑</span>
+                        收文模板管理中心
+                    </div>
+                    <div class="section-subtitle">管理所有收文模板，查看使用统计，快速复制和编辑</div>
+                </div>
+                <div class="template-mgmt-toolbar">
+                    <div class="search-box">
+                        <input type="text" id="templateMgmtSearchInput" placeholder="搜索模板名称、来文单位、科室..." class="search-input" oninput="searchTemplateManagement()">
+                        <button class="search-btn" onclick="searchTemplateManagement()">🔍</button>
+                    </div>
+                    <div class="template-mgmt-stats">
+                        <span class="template-mgmt-stat-item">共 <span id="templateMgmtTotalCount">0</span> 个模板</span>
+                        <span class="template-mgmt-stat-item">累计使用 <span id="templateMgmtTotalUseCount">0</span> 次</span>
+                    </div>
+                </div>
+                <div class="template-mgmt-list" id="templateMgmtList">
                 </div>
             </div>
         </div>
@@ -1150,6 +1175,102 @@
                 <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
                     <button type="button" class="btn btn-default" onclick="closeSaveTemplateModal()">取消</button>
                     <button type="submit" class="btn btn-primary">保存模板</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="editTemplateModal">
+        <div class="modal-overlay" onclick="closeEditTemplateModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="editTemplateModalTitle">编辑模板</h2>
+                <button class="modal-close" onclick="closeEditTemplateModal()">✕</button>
+            </div>
+            <form id="editTemplateForm" class="modal-body" onsubmit="saveEditTemplate(event)">
+                <input type="hidden" id="editTemplateId">
+                <div class="form-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label" for="editTemplateName">模板名称 <span class="required">*</span></label>
+                        <input type="text" id="editTemplateName" class="form-input" placeholder="请输入模板名称" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label" for="editTemplateFromUnit">来文单位 <span class="required">*</span></label>
+                        <input type="text" id="editTemplateFromUnit" class="form-input" placeholder="请来文单位" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="editTemplateUrgency">紧急程度 <span class="required">*</span></label>
+                        <select id="editTemplateUrgency" class="form-input" required>
+                            <option value="普通">普通</option>
+                            <option value="加急">加急</option>
+                            <option value="特急">特急</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="editTemplateProposedDept">拟办科室</label>
+                        <select id="editTemplateProposedDept" class="form-input">
+                            <option value="">请选择拟办科室（选填）</option>
+                            <option value="办公室">办公室</option>
+                            <option value="综合科">综合科</option>
+                            <option value="业务一科">业务一科</option>
+                            <option value="业务二科">业务二科</option>
+                            <option value="法制科">法制科</option>
+                            <option value="财务科">财务科</option>
+                            <option value="人事科">人事科</option>
+                            <option value="信息科">信息科</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="editTemplateUndertakingDept">承办科室 <span class="required">*</span></label>
+                        <select id="editTemplateUndertakingDept" class="form-input" required>
+                            <option value="">请选择承办科室</option>
+                            <option value="办公室">办公室</option>
+                            <option value="综合科">综合科</option>
+                            <option value="业务一科">业务一科</option>
+                            <option value="业务二科">业务二科</option>
+                            <option value="法制科">法制科</option>
+                            <option value="财务科">财务科</option>
+                            <option value="人事科">人事科</option>
+                            <option value="信息科">信息科</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">协办科室</label>
+                    <div class="co-department-checkboxes" id="editTemplateCoDeptCheckboxes">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label" for="editTemplateDeadlineDays">默认期限（天）</label>
+                        <input type="number" id="editTemplateDeadlineDays" class="form-input" placeholder="7" min="1" max="365">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="editTemplateRemark">备注</label>
+                    <textarea id="editTemplateRemark" class="form-input" rows="3" placeholder="请输入备注（选填）"></textarea>
+                </div>
+                <div class="template-edit-stats">
+                    <div class="template-edit-stat-item">
+                        <span class="stat-label">使用次数：</span>
+                        <span class="stat-value" id="editTemplateUseCount">0</span>
+                    </div>
+                    <div class="template-edit-stat-item">
+                        <span class="stat-label">最近使用：</span>
+                        <span class="stat-value" id="editTemplateLastUsed">-</span>
+                    </div>
+                    <div class="template-edit-stat-item">
+                        <span class="stat-label">创建时间：</span>
+                        <span class="stat-value" id="editTemplateCreatedAt">-</span>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 16px 0 0; margin: 0 -24px -24px;">
+                    <button type="button" class="btn btn-default" onclick="closeEditTemplateModal()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存修改</button>
                 </div>
             </form>
         </div>

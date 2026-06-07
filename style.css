@@ -3658,6 +3658,251 @@ body {
     }
 }
 
+/* ============ 模板管理中心样式 ============ */
+
+.template-management-section {
+    display: block;
+}
+
+.template-mgmt-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.template-mgmt-toolbar .search-box {
+    flex: 1;
+    max-width: 400px;
+    min-width: 200px;
+}
+
+.template-mgmt-stats {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.template-mgmt-stat-item {
+    font-size: 13px;
+    color: #666;
+    white-space: nowrap;
+}
+
+.template-mgmt-stat-item span {
+    font-weight: 600;
+    color: #1890ff;
+    font-size: 15px;
+}
+
+.template-mgmt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.template-mgmt-card {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.template-mgmt-card:hover {
+    border-color: #1890ff;
+    box-shadow: 0 2px 12px rgba(24, 144, 255, 0.12);
+    transform: translateY(-1px);
+}
+
+.template-mgmt-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    background: linear-gradient(135deg, #f0f7ff 0%, #f9f0ff 100%);
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.template-mgmt-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.template-mgmt-card-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.template-mgmt-card-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.template-mgmt-urgency {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.template-mgmt-urgency.urgency-normal {
+    background: #f6ffed;
+    color: #52c41a;
+    border: 1px solid #b7eb8f;
+}
+
+.template-mgmt-urgency.urgency-urgent {
+    background: #fff7e6;
+    color: #fa8c16;
+    border: 1px solid #ffd591;
+}
+
+.template-mgmt-urgency.urgency-special {
+    background: #fff1f0;
+    color: #f5222d;
+    border: 1px solid #ffa39e;
+}
+
+.template-mgmt-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.template-mgmt-card-body {
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.template-mgmt-field-row {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.template-mgmt-field {
+    flex: 1;
+    min-width: 150px;
+    font-size: 13px;
+}
+
+.template-mgmt-field-label {
+    color: #8c8c8c;
+    margin-right: 4px;
+}
+
+.template-mgmt-field-value {
+    color: #262626;
+    font-weight: 500;
+}
+
+.template-mgmt-card-footer {
+    display: flex;
+    gap: 20px;
+    padding: 12px 18px;
+    background: #fafafa;
+    border-top: 1px solid #f0f0f0;
+    flex-wrap: wrap;
+}
+
+.template-mgmt-stat {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: #8c8c8c;
+}
+
+.template-mgmt-stat-icon {
+    font-size: 14px;
+}
+
+.template-mgmt-stat-label {
+    color: #8c8c8c;
+}
+
+.template-mgmt-stat-value {
+    color: #1890ff;
+    font-weight: 600;
+}
+
+.template-edit-stats {
+    display: flex;
+    gap: 20px;
+    padding: 14px 16px;
+    background: #f6f8ff;
+    border-radius: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+.template-edit-stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.template-edit-stat-item .stat-label {
+    font-size: 12px;
+    color: #8c8c8c;
+}
+
+.template-edit-stat-item .stat-value {
+    font-size: 14px;
+    color: #262626;
+    font-weight: 500;
+}
+
+@media (max-width: 640px) {
+    .template-mgmt-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .template-mgmt-toolbar .search-box {
+        max-width: none;
+    }
+
+    .template-mgmt-stats {
+        justify-content: space-between;
+    }
+
+    .template-mgmt-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .template-mgmt-card-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .template-mgmt-card-footer {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .template-edit-stats {
+        flex-direction: column;
+        gap: 12px;
+    }
+}
+
 /* ============ 流转办理模块样式 ============ */
 
 /* 1. 流转状态标签样式 */

@@ -269,7 +269,14 @@ function getTemplates() {
     const data = localStorage.getItem(TEMPLATE_STORAGE_KEY);
     if (!data) return [];
     try {
-        return JSON.parse(data);
+        const templates = JSON.parse(data);
+        return templates.map(function(tpl) {
+            return {
+                useCount: 0,
+                lastUsedAt: null,
+                ...tpl
+            };
+        });
     } catch (e) {
         return [];
     }
@@ -893,6 +900,13 @@ function applyTemplate(templateId) {
     const tpl = templates.find(function(t) { return t.id === templateId; });
     if (!tpl) return;
 
+    const tplIndex = templates.findIndex(function(t) { return t.id === templateId; });
+    if (tplIndex !== -1) {
+        templates[tplIndex].useCount = (templates[tplIndex].useCount || 0) + 1;
+        templates[tplIndex].lastUsedAt = new Date().toISOString();
+        saveTemplates(templates);
+    }
+
     document.getElementById('fromUnit').value = tpl.fromUnit || '';
     document.getElementById('urgency').value = tpl.urgency || '普通';
     document.getElementById('remark').value = tpl.remark || '';
@@ -1032,6 +1046,7 @@ function saveTemplate(e) {
             document.getElementById('deleteTemplateBtn').style.display = 'inline-flex';
             closeSaveTemplateModal();
             showToast('模板已更新', 'success');
+            if (typeof renderTemplateManagementList === 'function') renderTemplateManagementList();
             return;
         }
     }
@@ -1041,6 +1056,8 @@ function saveTemplate(e) {
         id: generateId(),
         name: name,
         ...formData,
+        useCount: 0,
+        lastUsedAt: null,
         createdAt: new Date().toISOString()
     };
 
@@ -1052,6 +1069,7 @@ function saveTemplate(e) {
 
     closeSaveTemplateModal();
     showToast('模板保存成功', 'success');
+    if (typeof renderTemplateManagementList === 'function') renderTemplateManagementList();
 }
 
 function deleteCurrentTemplate() {
@@ -1074,6 +1092,316 @@ function deleteCurrentTemplate() {
     saveTemplates(filtered);
     renderTemplateSelect();
     document.getElementById('deleteTemplateBtn').style.display = 'none';
+
+    showToast('模板已删除', 'success');
+    if (typeof renderTemplateManagementList === 'function') renderTemplateManagementList();
+}
+
+let templateMgmtSearchKeyword = '';
+
+function renderTemplateManagementList() {
+    const listEl = document.getElementById('templateMgmtList');
+    if (!listEl) return;
+
+    let templates = getTemplates();
+
+    if (templateMgmtSearchKeyword) {
+        const keyword = templateMgmtSearchKeyword.toLowerCase();
+        templates = templates.filter(function(tpl) {
+            return (tpl.name && tpl.name.toLowerCase().includes(keyword)) ||
+                (tpl.fromUnit && tpl.fromUnit.toLowerCase().includes(keyword)) ||
+                (tpl.proposedDepartment && tpl.proposedDepartment.toLowerCase().includes(keyword)) ||
+                (tpl.undertakingDepartment && tpl.undertakingDepartment.toLowerCase().includes(keyword)) ||
+                (tpl.department && tpl.department.toLowerCase().includes(keyword)) ||
+                (tpl.remark && tpl.remark.toLowerCase().includes(keyword)) ||
+                (tpl.coDepartments && tpl.coDepartments.some(function(d) { return d.toLowerCase().includes(keyword); }));
+        });
+    }
+
+    const totalCountEl = document.getElementById('templateMgmtTotalCount');
+    if (totalCountEl) totalCountEl.textContent = templates.length;
+
+    const totalUseCountEl = document.getElementById('templateMgmtTotalUseCount');
+    if (totalUseCountEl) {
+        const total = templates.reduce(function(sum, tpl) { return sum + (tpl.useCount || 0); }, 0);
+        totalUseCountEl.textContent = total;
+    }
+
+    if (templates.length === 0) {
+        listEl.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📑</div>
+                <p class="empty-text">${templateMgmtSearchKeyword ? '没有找到匹配的模板' : '暂无模板，快去新增收文时保存模板吧'}</p>
+            </div>
+        `;
+        return;
+    }
+
+    const html = templates.map(function(tpl) {
+        const coDeptText = (tpl.coDepartments && tpl.coDepartments.length > 0)
+            ? tpl.coDepartments.join('、')
+            : '-';
+        const useCount = tpl.useCount || 0;
+        const lastUsedText = tpl.lastUsedAt ? formatDateTime(tpl.lastUsedAt) : '从未使用';
+        const createdAtText = tpl.createdAt ? formatDateTime(tpl.createdAt) : '-';
+
+        let urgencyClass = 'urgency-normal';
+        if (tpl.urgency === '加急') urgencyClass = 'urgency-urgent';
+        if (tpl.urgency === '特急') urgencyClass = 'urgency-special';
+
+        return `
+            <div class="template-mgmt-card" data-id="${tpl.id}">
+                <div class="template-mgmt-card-header">
+                    <div class="template-mgmt-card-title">
+                        <span class="template-mgmt-card-icon">📋</span>
+                        <span class="template-mgmt-card-name">${escapeHtml(tpl.name)}</span>
+                        <span class="template-mgmt-urgency ${urgencyClass}">${tpl.urgency || '普通'}</span>
+                    </div>
+                    <div class="template-mgmt-card-actions">
+                        <button class="btn btn-default btn-sm" onclick="copyTemplate('${tpl.id}')" title="复制模板">
+                            <span class="btn-icon">📄</span> 复制
+                        </button>
+                        <button class="btn btn-primary btn-sm" onclick="openEditTemplateModal('${tpl.id}')" title="编辑模板">
+                            <span class="btn-icon">✏️</span> 编辑
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteTemplateMgmt('${tpl.id}')" title="删除模板">
+                            <span class="btn-icon">🗑</span> 删除
+                        </button>
+                    </div>
+                </div>
+                <div class="template-mgmt-card-body">
+                    <div class="template-mgmt-field">
+                        <span class="template-mgmt-field-label">来文单位：</span>
+                        <span class="template-mgmt-field-value">${escapeHtml(tpl.fromUnit || '-')}</span>
+                    </div>
+                    <div class="template-mgmt-field-row">
+                        <div class="template-mgmt-field">
+                            <span class="template-mgmt-field-label">拟办科室：</span>
+                            <span class="template-mgmt-field-value">${escapeHtml(tpl.proposedDepartment || '-')}</span>
+                        </div>
+                        <div class="template-mgmt-field">
+                            <span class="template-mgmt-field-label">承办科室：</span>
+                            <span class="template-mgmt-field-value">${escapeHtml(tpl.undertakingDepartment || tpl.department || '-')}</span>
+                        </div>
+                    </div>
+                    <div class="template-mgmt-field">
+                        <span class="template-mgmt-field-label">协办科室：</span>
+                        <span class="template-mgmt-field-value">${escapeHtml(coDeptText)}</span>
+                    </div>
+                    <div class="template-mgmt-field-row">
+                        <div class="template-mgmt-field">
+                            <span class="template-mgmt-field-label">默认期限：</span>
+                            <span class="template-mgmt-field-value">${tpl.deadlineDays ? tpl.deadlineDays + ' 天' : '-'}</span>
+                        </div>
+                        <div class="template-mgmt-field">
+                            <span class="template-mgmt-field-label">备注：</span>
+                            <span class="template-mgmt-field-value">${escapeHtml(tpl.remark ? (tpl.remark.substring(0, 30) + (tpl.remark.length > 30 ? '...' : '')) : '-')}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="template-mgmt-card-footer">
+                    <div class="template-mgmt-stat">
+                        <span class="template-mgmt-stat-icon">📊</span>
+                        <span class="template-mgmt-stat-label">使用次数：</span>
+                        <span class="template-mgmt-stat-value">${useCount}</span>
+                    </div>
+                    <div class="template-mgmt-stat">
+                        <span class="template-mgmt-stat-icon">🕐</span>
+                        <span class="template-mgmt-stat-label">最近使用：</span>
+                        <span class="template-mgmt-stat-value">${lastUsedText}</span>
+                    </div>
+                    <div class="template-mgmt-stat">
+                        <span class="template-mgmt-stat-icon">📅</span>
+                        <span class="template-mgmt-stat-label">创建时间：</span>
+                        <span class="template-mgmt-stat-value">${createdAtText}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    listEl.innerHTML = html;
+}
+
+function searchTemplateManagement() {
+    const inputEl = document.getElementById('templateMgmtSearchInput');
+    if (inputEl) {
+        templateMgmtSearchKeyword = inputEl.value.trim();
+    }
+    renderTemplateManagementList();
+}
+
+function openEditTemplateModal(templateId) {
+    const templates = getTemplates();
+    const tpl = templates.find(function(t) { return t.id === templateId; });
+    if (!tpl) return;
+
+    document.getElementById('editTemplateId').value = tpl.id;
+    document.getElementById('editTemplateName').value = tpl.name || '';
+    document.getElementById('editTemplateFromUnit').value = tpl.fromUnit || '';
+    document.getElementById('editTemplateUrgency').value = tpl.urgency || '普通';
+    document.getElementById('editTemplateProposedDept').value = tpl.proposedDepartment || '';
+    document.getElementById('editTemplateUndertakingDept').value = tpl.undertakingDepartment || tpl.department || '';
+    document.getElementById('editTemplateDeadlineDays').value = tpl.deadlineDays || '';
+    document.getElementById('editTemplateRemark').value = tpl.remark || '';
+
+    document.getElementById('editTemplateUseCount').textContent = tpl.useCount || 0;
+    document.getElementById('editTemplateLastUsed').textContent = tpl.lastUsedAt ? formatDateTime(tpl.lastUsedAt) : '-';
+    document.getElementById('editTemplateCreatedAt').textContent = tpl.createdAt ? formatDateTime(tpl.createdAt) : '-';
+
+    renderEditTemplateCoDeptCheckboxes(tpl.coDepartments || []);
+
+    document.getElementById('editTemplateModal').classList.add('show');
+}
+
+function closeEditTemplateModal() {
+    document.getElementById('editTemplateModal').classList.remove('show');
+}
+
+function renderEditTemplateCoDeptCheckboxes(selected) {
+    const container = document.getElementById('editTemplateCoDeptCheckboxes');
+    if (!container) return;
+
+    const html = DEPARTMENT_LIST.map(function(dept) {
+        const isChecked = selected.includes(dept) ? 'checked' : '';
+        return `
+            <label class="co-dept-checkbox-label">
+                <input type="checkbox" class="edit-template-co-dept-checkbox" value="${dept}" ${isChecked}>
+                <span class="co-dept-text">${dept}</span>
+            </label>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+}
+
+function getEditTemplateCoDepartments() {
+    const checkboxes = document.querySelectorAll('.edit-template-co-dept-checkbox:checked');
+    const selected = [];
+    checkboxes.forEach(function(cb) {
+        selected.push(cb.value);
+    });
+    return selected;
+}
+
+function saveEditTemplate(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('editTemplateId').value;
+    const name = document.getElementById('editTemplateName').value.trim();
+    const fromUnit = document.getElementById('editTemplateFromUnit').value.trim();
+    const urgency = document.getElementById('editTemplateUrgency').value;
+    const proposedDepartment = document.getElementById('editTemplateProposedDept').value;
+    const undertakingDepartment = document.getElementById('editTemplateUndertakingDept').value;
+    const coDepartments = getEditTemplateCoDepartments();
+    const deadlineDays = document.getElementById('editTemplateDeadlineDays').value;
+    const remark = document.getElementById('editTemplateRemark').value.trim();
+
+    if (!name) {
+        showToast('请输入模板名称', 'error');
+        return;
+    }
+    if (!fromUnit) {
+        showToast('请输入来文单位', 'error');
+        return;
+    }
+    if (!undertakingDepartment) {
+        showToast('请选择承办科室', 'error');
+        return;
+    }
+
+    const templates = getTemplates();
+    const index = templates.findIndex(function(t) { return t.id === id; });
+    if (index === -1) {
+        showToast('模板不存在', 'error');
+        return;
+    }
+
+    const nameDup = templates.find(function(t) { return t.name === name && t.id !== id; });
+    if (nameDup) {
+        if (!confirm('已存在名为「' + name + '」的模板，是否仍要修改？')) {
+            return;
+        }
+    }
+
+    const oldTpl = templates[index];
+    templates[index] = {
+        ...oldTpl,
+        name: name,
+        fromUnit: fromUnit,
+        urgency: urgency,
+        proposedDepartment: proposedDepartment,
+        undertakingDepartment: undertakingDepartment,
+        department: undertakingDepartment,
+        coDepartments: coDepartments,
+        deadlineDays: deadlineDays ? parseInt(deadlineDays) : null,
+        remark: remark,
+        updatedAt: new Date().toISOString()
+    };
+
+    saveTemplates(templates);
+    renderTemplateSelect();
+    renderTemplateManagementList();
+    closeEditTemplateModal();
+    showToast('模板已更新', 'success');
+}
+
+function copyTemplate(templateId) {
+    const templates = getTemplates();
+    const tpl = templates.find(function(t) { return t.id === templateId; });
+    if (!tpl) return;
+
+    const newName = tpl.name + ' - 副本';
+    let finalName = newName;
+    let counter = 1;
+    while (templates.some(function(t) { return t.name === finalName; })) {
+        counter++;
+        finalName = tpl.name + ' - 副本 ' + counter;
+    }
+
+    const newTemplate = {
+        id: generateId(),
+        name: finalName,
+        fromUnit: tpl.fromUnit,
+        urgency: tpl.urgency,
+        proposedDepartment: tpl.proposedDepartment,
+        undertakingDepartment: tpl.undertakingDepartment,
+        department: tpl.department,
+        coDepartments: (tpl.coDepartments || []).slice(),
+        deadlineDays: tpl.deadlineDays,
+        remark: tpl.remark,
+        useCount: 0,
+        lastUsedAt: null,
+        createdAt: new Date().toISOString()
+    };
+
+    templates.unshift(newTemplate);
+    saveTemplates(templates);
+    renderTemplateSelect();
+    renderTemplateManagementList();
+    showToast('模板已复制：' + finalName, 'success');
+}
+
+function deleteTemplateMgmt(templateId) {
+    const templates = getTemplates();
+    const tpl = templates.find(function(t) { return t.id === templateId; });
+    if (!tpl) return;
+
+    if (!confirm('确定要删除模板「' + tpl.name + '」吗？此操作不可恢复。')) {
+        return;
+    }
+
+    const filtered = templates.filter(function(t) { return t.id !== templateId; });
+    saveTemplates(filtered);
+    renderTemplateSelect();
+    renderTemplateManagementList();
+
+    const selectEl = document.getElementById('templateSelect');
+    if (selectEl && selectEl.value === templateId) {
+        selectEl.value = '';
+        const deleteBtn = document.getElementById('deleteTemplateBtn');
+        if (deleteBtn) deleteBtn.style.display = 'none';
+    }
 
     showToast('模板已删除', 'success');
 }
@@ -1949,6 +2277,7 @@ function switchView(view) {
     const documentList = document.getElementById('documentList');
     const auditLogSection = document.getElementById('auditLogSection');
     const recycleBinSection = document.getElementById('recycleBinSection');
+    const templateManagementSection = document.getElementById('templateManagementSection');
     const filterSection = document.querySelector('.filter-section');
     const viewSwitcher = document.querySelector('.view-switcher');
     const statsSection = document.querySelector('.stats-section');
@@ -1965,6 +2294,7 @@ function switchView(view) {
         documentList.style.display = 'none';
         auditLogSection.style.display = 'block';
         recycleBinSection.style.display = 'none';
+        if (templateManagementSection) templateManagementSection.style.display = 'none';
         renderAuditLogList();
     } else if (view === 'recycle_bin') {
         if (viewSwitcher) viewSwitcher.style.display = 'none';
@@ -1977,7 +2307,21 @@ function switchView(view) {
         documentList.style.display = 'none';
         auditLogSection.style.display = 'none';
         recycleBinSection.style.display = 'block';
+        if (templateManagementSection) templateManagementSection.style.display = 'none';
         renderRecycleBinList();
+    } else if (view === 'template_management') {
+        if (viewSwitcher) viewSwitcher.style.display = 'none';
+        if (listTabs) listTabs.style.display = 'none';
+        if (batchToolbar) batchToolbar.style.display = 'none';
+        if (departmentBoard) departmentBoard.style.display = 'none';
+        if (filterSection) filterSection.style.display = 'none';
+        if (statsSection) statsSection.style.display = 'none';
+        if (reminderCenter) reminderCenter.style.display = 'none';
+        documentList.style.display = 'none';
+        auditLogSection.style.display = 'none';
+        recycleBinSection.style.display = 'none';
+        if (templateManagementSection) templateManagementSection.style.display = 'block';
+        renderTemplateManagementList();
     } else if (view === 'board') {
         if (viewSwitcher) viewSwitcher.style.display = 'flex';
         if (listTabs) listTabs.style.display = 'flex';
@@ -1989,6 +2333,7 @@ function switchView(view) {
         documentList.style.display = 'block';
         auditLogSection.style.display = 'none';
         recycleBinSection.style.display = 'none';
+        if (templateManagementSection) templateManagementSection.style.display = 'none';
         boardDrillContext = null;
         hideDrillIndicator();
         renderDepartmentBoard();
@@ -2002,6 +2347,7 @@ function switchView(view) {
         documentList.style.display = 'block';
         auditLogSection.style.display = 'none';
         recycleBinSection.style.display = 'none';
+        if (templateManagementSection) templateManagementSection.style.display = 'none';
         updateBatchToolbar();
         renderDocumentList();
     }
@@ -5494,7 +5840,7 @@ function switchRestorePreviewTab(tab) {
 function getTableHeaders(tab) {
     const headers = {
         documents: ['序号', '标题', '文号', '来文单位', '承办科室', '处理方式'],
-        templates: ['序号', '模板名称', '来文单位', '紧急程度', '承办科室', '处理方式'],
+        templates: ['序号', '模板名称', '来文单位', '紧急程度', '使用次数', '最近使用', '处理方式'],
         auditLogs: ['序号', '操作类型', '收文标题', '文号', '操作时间', '处理方式'],
         viewPresets: ['序号', '视图名称', '筛选科室', '视图类型', '创建时间', '处理方式']
     };
@@ -5525,7 +5871,8 @@ function getTableRow(item, index, tab) {
                 '<td>' + escapeHtml(data.name || '-') + '</td>' +
                 '<td>' + escapeHtml(data.fromUnit || '-') + '</td>' +
                 '<td>' + escapeHtml(data.urgency || '-') + '</td>' +
-                '<td>' + escapeHtml(data.department || data.undertakingDepartment || '-') + '</td>';
+                '<td>' + (data.useCount || 0) + '</td>' +
+                '<td>' + escapeHtml(data.lastUsedAt ? data.lastUsedAt.substring(0, 10) : '从未使用') + '</td>';
             break;
         case 'auditLogs':
             cells =
