@@ -466,12 +466,16 @@ function applyViewPreset(id) {
 
     switchingFromPreset = true;
     switchView(currentView);
+
+    const tabEls = document.querySelectorAll('.tab');
+    tabEls.forEach(function(t) { t.classList.remove('active'); });
+    const activeTab = document.querySelector(`.tab[data-tab="${currentTab}"]`);
+    if (activeTab) activeTab.classList.add('active');
+
     if (currentView === 'list') {
-        const tabEls = document.querySelectorAll('.tab');
-        tabEls.forEach(function(t) { t.classList.remove('active'); });
-        const activeTab = document.querySelector(`.tab[data-tab="${currentTab}"]`);
-        if (activeTab) activeTab.classList.add('active');
         renderDocumentList();
+    } else if (currentView === 'board') {
+        renderDepartmentBoard();
     }
     switchingFromPreset = false;
 
@@ -483,7 +487,7 @@ function applyViewPreset(id) {
 function isCurrentViewMatchingPreset(preset) {
     if (!preset) return false;
     if (preset.viewType !== currentView) return false;
-    if (preset.viewType === 'list' && preset.tab !== currentTab) return false;
+    if (preset.tab !== currentTab) return false;
     if ((preset.keyword || '') !== searchKeyword) return false;
     const f = preset.filter || {};
     return f.department === advancedFilter.department &&
@@ -1578,7 +1582,7 @@ function switchView(view) {
         renderRecycleBinList();
     } else if (view === 'board') {
         if (viewSwitcher) viewSwitcher.style.display = 'flex';
-        if (listTabs) listTabs.style.display = 'none';
+        if (listTabs) listTabs.style.display = 'flex';
         if (batchToolbar) batchToolbar.style.display = 'none';
         if (departmentBoard) departmentBoard.style.display = 'block';
         if (filterSection) filterSection.style.display = 'block';
@@ -2147,7 +2151,11 @@ function switchTab(tab) {
     if (currentViewPresetId) {
         detachFromViewPreset();
     }
-    renderDocumentList();
+    if (currentView === 'board') {
+        renderDepartmentBoard();
+    } else {
+        renderDocumentList();
+    }
 }
 
 function searchDocuments() {
@@ -5203,9 +5211,24 @@ function init() {
         const presets = getViewPresets();
         const preset = presets.find(function(p) { return p.id === activePresetId; });
         if (preset) {
+            switchingFromPreset = true;
             applyViewPreset(activePresetId);
+            switchingFromPreset = false;
         } else {
             saveActiveViewPresetId(null);
+            const defaultPreset = getDefaultViewPreset();
+            if (defaultPreset) {
+                switchingFromPreset = true;
+                applyViewPreset(defaultPreset.id);
+                switchingFromPreset = false;
+            }
+        }
+    } else {
+        const defaultPreset = getDefaultViewPreset();
+        if (defaultPreset) {
+            switchingFromPreset = true;
+            applyViewPreset(defaultPreset.id);
+            switchingFromPreset = false;
         }
     }
 

@@ -876,10 +876,10 @@
                 <h2 id="saveViewPresetTitle">保存为常用视图</h2>
                 <button class="modal-close" onclick="closeSaveViewPresetModal()">✕</button>
             </div>
-            <form id="saveViewPresetForm" class="modal-body" onsubmit="saveViewPresetHandler(event)">
+            <form id="saveViewPresetForm" class="modal-body" onsubmit="saveViewPresetHandler(event); return false;">
                 <div class="form-group">
                     <label class="form-label" for="saveViewPresetName">视图名称 <span class="required">*</span></label>
-                    <input type="text" id="saveViewPresetName" class="form-input" placeholder="请输入视图名称，便于快速识别" required>
+                    <input type="text" id="saveViewPresetName" class="form-input" placeholder="请输入视图名称，便于快速识别">
                 </div>
                 <div class="view-preset-preview">
                     <div class="view-preset-preview-title">当前视图包含：</div>
