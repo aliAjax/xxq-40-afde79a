@@ -83,6 +83,12 @@
                 <button class="search-btn" onclick="searchDocuments()">🔍</button>
             </div>
             <div class="toolbar-actions">
+                <button class="btn btn-default" onclick="switchView('audit_log')">
+                    <span class="btn-icon">📝</span> 审计日志
+                </button>
+                <button class="btn btn-default" onclick="switchView('recycle_bin')">
+                    <span class="btn-icon">🗑</span> 回收站
+                </button>
                 <div class="export-dropdown">
                     <button class="btn btn-default" onclick="toggleExportMenu()">
                         <span class="btn-icon">📤</span> 导出备份 <span class="dropdown-arrow">▼</span>
@@ -260,6 +266,65 @@
                     <div class="empty-icon">📂</div>
                     <p class="empty-text">暂无收文记录</p>
                     <button class="btn btn-primary" onclick="openAddModal()">新增第一条收文</button>
+                </div>
+            </div>
+
+            <div class="audit-log-section" id="auditLogSection" style="display: none;">
+                <div class="section-header">
+                    <div class="section-title">
+                        <span class="section-title-icon">📝</span>
+                        审计日志
+                    </div>
+                    <div class="section-subtitle">记录所有关键操作，便于追踪和追溯</div>
+                </div>
+                <div class="audit-toolbar">
+                    <div class="search-box">
+                        <input type="text" id="auditLogSearchInput" placeholder="搜索标题、文号、动作类型..." class="search-input">
+                        <button class="search-btn" onclick="searchAuditLogs()">🔍</button>
+                    </div>
+                    <div class="audit-stats">
+                        <span class="audit-stat-item">共 <span id="auditLogTotalCount">0</span> 条记录</span>
+                    </div>
+                </div>
+                <div class="audit-log-list" id="auditLogList">
+                </div>
+            </div>
+
+            <div class="recycle-bin-section" id="recycleBinSection" style="display: none;">
+                <div class="section-header">
+                    <div class="section-title">
+                        <span class="section-title-icon">🗑</span>
+                        回收站
+                    </div>
+                    <div class="section-subtitle">已删除的收文会移至回收站，可恢复或彻底删除</div>
+                </div>
+                <div class="recycle-toolbar">
+                    <div class="recycle-stats">
+                        <span class="recycle-stat-item">回收站共 <span id="recycleBinCount">0</span> 条</span>
+                    </div>
+                    <div class="recycle-actions">
+                        <button class="btn btn-success btn-sm" onclick="batchRestoreFromRecycle()">
+                            <span class="btn-icon">↩</span> 批量恢复
+                        </button>
+                        <button class="btn btn-danger btn-sm" onclick="batchPermanentDeleteFromRecycle()">
+                            <span class="btn-icon">✕</span> 批量彻底删除
+                        </button>
+                        <button class="btn btn-default btn-sm" onclick="emptyRecycleBin()">
+                            <span class="btn-icon">🗑</span> 清空回收站
+                        </button>
+                    </div>
+                </div>
+                <div class="batch-toolbar" id="recycleBatchToolbar" style="display: none;">
+                    <div class="batch-left">
+                        <label class="batch-checkbox-label">
+                            <input type="checkbox" id="recycleSelectAllCheckbox" onchange="toggleRecycleSelectAll()">
+                            <span class="custom-checkbox"></span>
+                            全选
+                        </label>
+                        <span class="batch-count">已选 <span id="recycleSelectedCount">0</span> 条</span>
+                    </div>
+                </div>
+                <div class="recycle-bin-list" id="recycleBinList">
                 </div>
             </div>
         </div>

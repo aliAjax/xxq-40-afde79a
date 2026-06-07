@@ -1,6 +1,43 @@
 const STORAGE_KEY = 'document_registry_data';
 const TEMPLATE_STORAGE_KEY = 'document_templates';
+const AUDIT_LOG_STORAGE_KEY = 'document_audit_logs';
 const DEPARTMENT_LIST = ['办公室', '综合科', '业务一科', '业务二科', '法制科', '财务科', '人事科', '信息科'];
+
+const AUDIT_ACTION = {
+    CREATE: 'create',
+    EDIT: 'edit',
+    COMPLETE: 'complete',
+    EXTEND: 'extend',
+    BATCH_COMPLETE: 'batch_complete',
+    BATCH_DELETE: 'batch_delete',
+    BATCH_DEPARTMENT: 'batch_department',
+    IMPORT: 'import',
+    RESTORE: 'restore',
+    DELETE: 'delete',
+    RESTORE_RECYCLE: 'restore_recycle',
+    BATCH_RESTORE_RECYCLE: 'batch_restore_recycle',
+    PERMANENT_DELETE: 'permanent_delete',
+    BATCH_PERMANENT_DELETE: 'batch_permanent_delete',
+    EMPTY_RECYCLE_BIN: 'empty_recycle_bin'
+};
+
+const AUDIT_ACTION_TEXT = {
+    'create': '新增收文',
+    'edit': '编辑收文',
+    'complete': '办结收文',
+    'extend': '延期办理',
+    'batch_complete': '批量办结',
+    'batch_delete': '批量删除',
+    'batch_department': '批量修改科室',
+    'import': '导入收文',
+    'restore': '恢复备份',
+    'delete': '删除收文',
+    'restore_recycle': '恢复收文',
+    'batch_restore_recycle': '批量恢复',
+    'permanent_delete': '彻底删除',
+    'batch_permanent_delete': '批量彻底删除',
+    'empty_recycle_bin': '清空回收站'
+};
 
 const FLOW_STATUS = {
     PENDING_REVIEW: 'pending_review',
@@ -48,6 +85,8 @@ let advancedFilter = {
 let filterCollapsed = false;
 let selectedIds = [];
 let currentBatchAction = null;
+let recycleSelectedIds = [];
+let auditLogKeyword = '';
 
 function migrateDocument(doc) {
     const migrated = { ...doc };
@@ -136,10 +175,17 @@ function migrateDocument(doc) {
         migrated.reminderHistory = [];
     }
 
+    if (migrated.isDeleted === undefined) {
+        migrated.isDeleted = false;
+    }
+    if (!migrated.deletedAt) {
+        migrated.deletedAt = null;
+    }
+
     return migrated;
 }
 
-function getDocuments() {
+function loadAllDocuments() {
     const data = localStorage.getItem(STORAGE_KEY);
     if (!data) return [];
     const documents = JSON.parse(data);
@@ -153,13 +199,26 @@ function getDocuments() {
                (doc.completed && doc.flowStatus !== FLOW_STATUS.DONE) ||
                (doc.flowStatus === FLOW_STATUS.DONE && !doc.completed) ||
                doc.reminderNote === undefined ||
-               doc.extendedDeadline === undefined;
+               doc.extendedDeadline === undefined ||
+               doc.isDeleted === undefined;
     });
     if (hasOldFormat) {
         saveDocuments(migratedDocs);
     }
 
     return migratedDocs;
+}
+
+function getDocuments() {
+    return loadAllDocuments().filter(function(doc) {
+        return !doc.isDeleted;
+    });
+}
+
+function getRecycleBinDocuments() {
+    return loadAllDocuments().filter(function(doc) {
+        return doc.isDeleted;
+    });
 }
 
 function saveDocuments(documents) {
@@ -178,6 +237,104 @@ function getTemplates() {
 
 function saveTemplates(templates) {
     localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+}
+
+function getAuditLogs() {
+    const data = localStorage.getItem(AUDIT_LOG_STORAGE_KEY);
+    if (!data) return [];
+    try {
+        return JSON.parse(data);
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveAuditLogs(logs) {
+    localStorage.setItem(AUDIT_LOG_STORAGE_KEY, JSON.stringify(logs));
+}
+
+function getDocSummary(doc) {
+    if (!doc) return '-';
+    const parts = [];
+    if (doc.title) parts.push('标题：' + doc.title);
+    if (doc.docNumber) parts.push('文号：' + doc.docNumber);
+    if (doc.fromUnit) parts.push('来文单位：' + doc.fromUnit);
+    const dept = doc.undertakingDepartment || doc.department;
+    if (dept) parts.push('承办科室：' + dept);
+    if (doc.urgency) parts.push('紧急程度：' + doc.urgency);
+    if (doc.deadline) parts.push('办理期限：' + doc.deadline);
+    if (doc.flowStatus) parts.push('状态：' + (FLOW_ACTION_TEXT[doc.flowStatus] || doc.flowStatus));
+    return parts.join('；');
+}
+
+function getChangesSummary(oldDoc, newDoc) {
+    if (!oldDoc) return '新增收文';
+    if (!newDoc) return '删除收文';
+    const changes = [];
+    const fields = [
+        { key: 'title', label: '标题' },
+        { key: 'docNumber', label: '文号' },
+        { key: 'fromUnit', label: '来文单位' },
+        { key: 'urgency', label: '紧急程度' },
+        { key: 'deadline', label: '办理期限' },
+        { key: 'undertakingDepartment', label: '承办科室' },
+        { key: 'proposedDepartment', label: '拟办科室' },
+        { key: 'remark', label: '备注' },
+        { key: 'flowStatus', label: '流转状态' }
+    ];
+    fields.forEach(function(f) {
+        const oldVal = oldDoc[f.key] || '';
+        const newVal = newDoc[f.key] || '';
+        if (oldVal !== newVal) {
+            changes.push(f.label + '：' + (oldVal || '空') + ' → ' + (newVal || '空'));
+        }
+    });
+    if (changes.length === 0) return '无变更';
+    return changes.join('；');
+}
+
+function addAuditLog(action, doc, oldDoc, extra) {
+    const logs = getAuditLogs();
+    const now = new Date().toISOString();
+
+    let beforeSummary = '';
+    let afterSummary = '';
+
+    if (action === AUDIT_ACTION.CREATE || action === AUDIT_ACTION.IMPORT || action === AUDIT_ACTION.RESTORE) {
+        afterSummary = getDocSummary(doc);
+        beforeSummary = '-';
+    } else if (action === AUDIT_ACTION.DELETE || action === AUDIT_ACTION.PERMANENT_DELETE) {
+        beforeSummary = getDocSummary(doc);
+        afterSummary = '-';
+    } else if (action === AUDIT_ACTION.RESTORE_RECYCLE) {
+        beforeSummary = getDocSummary(doc) + '（已删除）';
+        afterSummary = getDocSummary(doc) + '（已恢复）';
+    } else {
+        beforeSummary = getDocSummary(oldDoc);
+        afterSummary = getDocSummary(doc);
+    }
+
+    const log = {
+        id: generateId(),
+        action: action,
+        actionText: AUDIT_ACTION_TEXT[action] || action,
+        docId: doc ? doc.id : null,
+        docTitle: doc ? (doc.title || '') : '',
+        docNumber: doc ? (doc.docNumber || '') : '',
+        beforeSummary: beforeSummary,
+        afterSummary: afterSummary,
+        changes: oldDoc ? getChangesSummary(oldDoc, doc) : '',
+        timestamp: now,
+        extra: extra || null
+    };
+
+    logs.unshift(log);
+
+    if (logs.length > 1000) {
+        logs.length = 1000;
+    }
+
+    saveAuditLogs(logs);
 }
 
 function getCurrentFormTemplateData() {
@@ -917,23 +1074,66 @@ function switchView(view) {
     document.querySelectorAll('.view-tab').forEach(t => {
         t.classList.remove('active');
     });
-    document.querySelector(`.view-tab[data-view="${view}"]`).classList.add('active');
+    const viewTab = document.querySelector(`.view-tab[data-view="${view}"]`);
+    if (viewTab) viewTab.classList.add('active');
 
     const listTabs = document.getElementById('listTabs');
     const batchToolbar = document.getElementById('batchToolbar');
     const departmentBoard = document.getElementById('departmentBoard');
-    const content = document.querySelector('.content');
+    const documentList = document.getElementById('documentList');
+    const auditLogSection = document.getElementById('auditLogSection');
+    const recycleBinSection = document.getElementById('recycleBinSection');
+    const filterSection = document.querySelector('.filter-section');
+    const viewSwitcher = document.querySelector('.view-switcher');
+    const statsSection = document.querySelector('.stats-section');
+    const reminderCenter = document.querySelector('.reminder-center');
 
-    if (view === 'board') {
-        listTabs.style.display = 'none';
-        batchToolbar.style.display = 'none';
-        content.style.display = 'none';
-        departmentBoard.style.display = 'block';
+    if (view === 'audit_log') {
+        if (viewSwitcher) viewSwitcher.style.display = 'none';
+        if (listTabs) listTabs.style.display = 'none';
+        if (batchToolbar) batchToolbar.style.display = 'none';
+        if (departmentBoard) departmentBoard.style.display = 'none';
+        if (filterSection) filterSection.style.display = 'none';
+        if (statsSection) statsSection.style.display = 'none';
+        if (reminderCenter) reminderCenter.style.display = 'none';
+        documentList.style.display = 'none';
+        auditLogSection.style.display = 'block';
+        recycleBinSection.style.display = 'none';
+        renderAuditLogList();
+    } else if (view === 'recycle_bin') {
+        if (viewSwitcher) viewSwitcher.style.display = 'none';
+        if (listTabs) listTabs.style.display = 'none';
+        if (batchToolbar) batchToolbar.style.display = 'none';
+        if (departmentBoard) departmentBoard.style.display = 'none';
+        if (filterSection) filterSection.style.display = 'none';
+        if (statsSection) statsSection.style.display = 'none';
+        if (reminderCenter) reminderCenter.style.display = 'none';
+        documentList.style.display = 'none';
+        auditLogSection.style.display = 'none';
+        recycleBinSection.style.display = 'block';
+        renderRecycleBinList();
+    } else if (view === 'board') {
+        if (viewSwitcher) viewSwitcher.style.display = 'flex';
+        if (listTabs) listTabs.style.display = 'none';
+        if (batchToolbar) batchToolbar.style.display = 'none';
+        if (departmentBoard) departmentBoard.style.display = 'block';
+        if (filterSection) filterSection.style.display = 'block';
+        if (statsSection) statsSection.style.display = 'grid';
+        if (reminderCenter) reminderCenter.style.display = 'block';
+        documentList.style.display = 'block';
+        auditLogSection.style.display = 'none';
+        recycleBinSection.style.display = 'none';
         renderDepartmentBoard();
     } else {
-        listTabs.style.display = 'flex';
-        content.style.display = 'block';
-        departmentBoard.style.display = 'none';
+        if (viewSwitcher) viewSwitcher.style.display = 'flex';
+        if (listTabs) listTabs.style.display = 'flex';
+        if (departmentBoard) departmentBoard.style.display = 'none';
+        if (filterSection) filterSection.style.display = 'block';
+        if (statsSection) statsSection.style.display = 'grid';
+        if (reminderCenter) reminderCenter.style.display = 'block';
+        documentList.style.display = 'block';
+        auditLogSection.style.display = 'none';
+        recycleBinSection.style.display = 'none';
         updateBatchToolbar();
         renderDocumentList();
     }
@@ -1277,7 +1477,7 @@ function openBatchDeleteModal() {
     const batchConfirmMessage = document.getElementById('batchConfirmMessage');
     if (batchConfirmMessage) {
         batchConfirmMessage.innerHTML =
-            '确定要删除选中的 <span>' + selectedIds.length + '</span> 条收文吗？此操作不可恢复。';
+            '确定要删除选中的 <span>' + selectedIds.length + '</span> 条收文吗？删除后将移至回收站，可从回收站恢复。';
     }
     const batchConfirmBtn = document.getElementById('batchConfirmBtn');
     if (batchConfirmBtn) batchConfirmBtn.className = 'btn btn-danger';
@@ -1312,6 +1512,7 @@ function executeBatchAction(e) {
 
         let count = 0;
         const now = new Date().toISOString();
+        const completedDocs = [];
         const updatedDocs = documents.map(function(doc) {
             if (selectedIds.includes(doc.id) && doc.flowStatus === FLOW_STATUS.PENDING_FEEDBACK) {
                 count++;
@@ -1328,7 +1529,7 @@ function executeBatchAction(e) {
                 };
                 const flowRecords = doc.flowRecords || [];
                 flowRecords.push(flowRecord);
-                return {
+                const newDoc = {
                     ...doc,
                     flowStatus: FLOW_STATUS.DONE,
                     completed: true,
@@ -1336,16 +1537,48 @@ function executeBatchAction(e) {
                     completedRemark: batchRemark || '批量办结',
                     flowRecords: flowRecords
                 };
+                completedDocs.push({ oldDoc: doc, newDoc: newDoc });
+                return newDoc;
             }
             return doc;
         });
         saveDocuments(updatedDocs);
+        if (completedDocs.length > 0) {
+            const sampleDoc = completedDocs[0].newDoc;
+            addAuditLog(AUDIT_ACTION.BATCH_COMPLETE, sampleDoc, null, {
+                count: count,
+                docIds: selectedIds,
+                handler: batchHandler,
+                remark: batchRemark
+            });
+        }
         showToast('成功办结 ' + count + ' 条收文', 'success');
     } else if (currentBatchAction === 'delete') {
         const count = selectedIds.length;
-        const filtered = documents.filter(function(doc) { return !selectedIds.includes(doc.id); });
-        saveDocuments(filtered);
-        showToast('成功删除 ' + count + ' 条收文', 'success');
+        const allDocs = loadAllDocuments();
+        const now = new Date().toISOString();
+        const deletedDocs = [];
+        const updatedDocs = allDocs.map(function(doc) {
+            if (selectedIds.includes(doc.id) && !doc.isDeleted) {
+                const newDoc = {
+                    ...doc,
+                    isDeleted: true,
+                    deletedAt: now
+                };
+                deletedDocs.push(newDoc);
+                return newDoc;
+            }
+            return doc;
+        });
+        saveDocuments(updatedDocs);
+        if (deletedDocs.length > 0) {
+            const sampleDoc = deletedDocs[0];
+            addAuditLog(AUDIT_ACTION.BATCH_DELETE, sampleDoc, null, {
+                count: count,
+                docIds: selectedIds
+            });
+        }
+        showToast('成功删除 ' + count + ' 条收文，已移至回收站', 'success');
     } else if (currentBatchAction === 'department') {
         const deptSelectEl = document.getElementById('batchDepartmentSelect');
         const newDept = deptSelectEl ? deptSelectEl.value : '';
@@ -1354,18 +1587,28 @@ function executeBatchAction(e) {
             return;
         }
         let count = 0;
+        let sampleDoc = null;
         const updatedDocs = documents.map(function(doc) {
             if (selectedIds.includes(doc.id)) {
                 count++;
-                return {
+                const newDoc = {
                     ...doc,
                     undertakingDepartment: newDept,
                     department: newDept
                 };
+                if (!sampleDoc) sampleDoc = newDoc;
+                return newDoc;
             }
             return doc;
         });
         saveDocuments(updatedDocs);
+        if (sampleDoc) {
+            addAuditLog(AUDIT_ACTION.BATCH_DEPARTMENT, sampleDoc, null, {
+                count: count,
+                docIds: selectedIds,
+                newDepartment: newDept
+            });
+        }
         showToast('成功修改 ' + count + ' 条收文的科室', 'success');
     }
 
@@ -1995,6 +2238,7 @@ function saveDocument(e) {
                 });
             }
             documents[index] = updatedDoc;
+            addAuditLog(AUDIT_ACTION.EDIT, updatedDoc, oldDoc);
             showToast('收文更新成功', 'success');
         }
     } else {
@@ -2020,9 +2264,12 @@ function saveDocument(e) {
                     createdAt: now
                 }
             ],
+            isDeleted: false,
+            deletedAt: null,
             createdAt: now
         };
         documents.unshift(newDoc);
+        addAuditLog(AUDIT_ACTION.CREATE, newDoc, null);
         showToast('收文添加成功', 'success');
     }
 
@@ -2123,6 +2370,7 @@ function confirmComplete(e) {
     }
 
     const doc = documents[index];
+    const oldDoc = { ...doc };
     const flowStatus = getDocumentStatus(doc);
     if (flowStatus === FLOW_STATUS.DONE) {
         showToast('该收文已办结', 'info');
@@ -2168,6 +2416,7 @@ function confirmComplete(e) {
 
     documents[index] = doc;
     saveDocuments(documents);
+    addAuditLog(AUDIT_ACTION.COMPLETE, doc, oldDoc, { handler: handler, remark: remark });
 
     const selIndex = selectedIds.indexOf(docId);
     if (selIndex > -1) {
@@ -2183,11 +2432,20 @@ function confirmComplete(e) {
 }
 
 function deleteDocument(id) {
-    if (!confirm('确定要删除该收文吗？此操作不可恢复。')) return;
+    if (!confirm('确定要删除该收文吗？删除后将移至回收站，可从回收站恢复。')) return;
 
-    const documents = getDocuments();
-    const filtered = documents.filter(d => d.id !== id);
-    saveDocuments(filtered);
+    const allDocs = loadAllDocuments();
+    const index = allDocs.findIndex(d => d.id === id);
+    if (index === -1) return;
+
+    const doc = allDocs[index];
+    const oldDoc = { ...doc };
+    doc.isDeleted = true;
+    doc.deletedAt = new Date().toISOString();
+    allDocs[index] = doc;
+
+    saveDocuments(allDocs);
+    addAuditLog(AUDIT_ACTION.DELETE, doc, oldDoc);
 
     const selIndex = selectedIds.indexOf(id);
     if (selIndex > -1) {
@@ -2197,11 +2455,117 @@ function deleteDocument(id) {
     updateStats();
     renderReminderCenter();
     renderDocumentList();
-    showToast('收文已删除', 'success');
+    showToast('收文已移至回收站', 'success');
+}
+
+function restoreDocument(id) {
+    const allDocs = loadAllDocuments();
+    const index = allDocs.findIndex(d => d.id === id);
+    if (index === -1) return false;
+
+    const doc = allDocs[index];
+    if (!doc.isDeleted) return false;
+
+    const oldDoc = { ...doc };
+    doc.isDeleted = false;
+    doc.deletedAt = null;
+    allDocs[index] = doc;
+
+    saveDocuments(allDocs);
+    addAuditLog(AUDIT_ACTION.RESTORE_RECYCLE, doc, oldDoc);
+    return true;
+}
+
+function permanentDeleteDocument(id) {
+    if (!confirm('确定要彻底删除该收文吗？此操作不可恢复！')) return false;
+
+    const allDocs = loadAllDocuments();
+    const doc = allDocs.find(d => d.id === id);
+    if (!doc) return false;
+
+    const filtered = allDocs.filter(d => d.id !== id);
+    saveDocuments(filtered);
+    addAuditLog(AUDIT_ACTION.PERMANENT_DELETE, doc, null);
+    return true;
+}
+
+function batchRestoreDocuments(ids) {
+    if (!ids || ids.length === 0) return 0;
+
+    const allDocs = loadAllDocuments();
+    let count = 0;
+    let sampleDoc = null;
+
+    const updatedDocs = allDocs.map(function(doc) {
+        if (ids.includes(doc.id) && doc.isDeleted) {
+            count++;
+            const newDoc = {
+                ...doc,
+                isDeleted: false,
+                deletedAt: null
+            };
+            if (!sampleDoc) sampleDoc = newDoc;
+            return newDoc;
+        }
+        return doc;
+    });
+
+    saveDocuments(updatedDocs);
+    if (sampleDoc) {
+        addAuditLog(AUDIT_ACTION.BATCH_RESTORE_RECYCLE, sampleDoc, null, {
+            count: count,
+            docIds: ids
+        });
+    }
+    return count;
+}
+
+function batchPermanentDelete(ids) {
+    if (!ids || ids.length === 0) return 0;
+    if (!confirm('确定要彻底删除选中的 ' + ids.length + ' 条收文吗？此操作不可恢复！')) return 0;
+
+    const allDocs = loadAllDocuments();
+    const toDelete = allDocs.filter(d => ids.includes(d.id));
+    const sampleDoc = toDelete.length > 0 ? toDelete[0] : null;
+
+    const filtered = allDocs.filter(d => !ids.includes(d.id));
+    saveDocuments(filtered);
+
+    if (sampleDoc) {
+        addAuditLog(AUDIT_ACTION.BATCH_PERMANENT_DELETE, sampleDoc, null, {
+            count: ids.length,
+            docIds: ids
+        });
+    }
+    return toDelete.length;
+}
+
+function emptyRecycleBin() {
+    const recycleDocs = getRecycleBinDocuments();
+    if (recycleDocs.length === 0) {
+        showToast('回收站为空', 'info');
+        return;
+    }
+
+    if (!confirm('确定要清空回收站吗？所有 ' + recycleDocs.length + ' 条收文将被彻底删除，此操作不可恢复！')) return;
+
+    const sampleDoc = recycleDocs[0];
+    const remaining = loadAllDocuments().filter(d => !d.isDeleted);
+    saveDocuments(remaining);
+
+    addAuditLog(AUDIT_ACTION.EMPTY_RECYCLE_BIN, sampleDoc, null, {
+        count: recycleDocs.length
+    });
+
+    recycleSelectedIds = [];
+    showToast('回收站已清空', 'success');
+    if (currentView === 'recycle_bin') {
+        renderRecycleBinList();
+    }
 }
 
 function viewDocument(id) {
-    const documents = getDocuments();
+    const documents = loadAllDocuments();
     const doc = documents.find(d => d.id === id);
     if (!doc) return;
 
@@ -2323,7 +2687,13 @@ function viewDocument(id) {
     `;
 
     const detailActions = document.getElementById('detailActions');
-    if (!isDone) {
+    if (doc.isDeleted) {
+        detailActions.innerHTML = `
+            <button class="btn btn-default" onclick="closeDetailModal()">关闭</button>
+            <button class="btn btn-danger" onclick="permanentDeleteFromRecycleBin('${doc.id}'); closeDetailModal();">彻底删除</button>
+            <button class="btn btn-success" onclick="restoreFromRecycleBin('${doc.id}'); closeDetailModal();">恢复</button>
+        `;
+    } else if (!isDone) {
         detailActions.innerHTML = `
             <button class="btn btn-default" onclick="closeDetailModal()">关闭</button>
             <button class="btn btn-danger" onclick="deleteDocument('${doc.id}'); closeDetailModal();">删除</button>
@@ -2675,6 +3045,8 @@ function confirmImport() {
                     createdAt: now
                 }
             ],
+            isDeleted: false,
+            deletedAt: null,
             createdAt: now
         };
     });
@@ -2685,6 +3057,13 @@ function confirmImport() {
     const validCount = importValidData.length;
     const totalCount = importParsedData.length;
     const skippedCount = totalCount - validCount;
+
+    if (validCount > 0 && newDocs.length > 0) {
+        addAuditLog(AUDIT_ACTION.IMPORT, newDocs[0], null, {
+            count: validCount,
+            skippedCount: skippedCount
+        });
+    }
 
     let msg = '成功导入 ' + validCount + ' 条收文';
     if (skippedCount > 0) {
@@ -2957,7 +3336,7 @@ function processRestoreFile(file) {
 }
 
 function analyzeRestoreData() {
-    const existingDocs = getDocuments();
+    const existingDocs = loadAllDocuments();
     const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
 
     const existingById = {};
@@ -3111,13 +3490,13 @@ function renderRestorePreview() {
 function confirmRestore() {
     if (!restoreAnalysis) return;
 
-    const documents = getDocuments();
+    const allDocs = loadAllDocuments();
     const overwrite = document.getElementById('restoreOverwriteCheckbox').checked;
 
     const existingById = {};
     const existingByDocNumber = {};
     const docIndexById = {};
-    documents.forEach(function(doc, index) {
+    allDocs.forEach(function(doc, index) {
         if (doc.id) {
             existingById[doc.id] = doc;
             docIndexById[doc.id] = index;
@@ -3130,8 +3509,9 @@ function confirmRestore() {
     let addCount = 0;
     let overwriteCount = 0;
     let skipCount = 0;
+    let restoredFromTrash = 0;
 
-    const finalDocs = documents.slice();
+    const finalDocs = allDocs.slice();
 
     const seenIdsInBackup = {};
     const seenDocNumbersInBackup = {};
@@ -3181,6 +3561,8 @@ function confirmRestore() {
                 completedAt: item.completedAt || null,
                 completedRemark: item.completedRemark || '',
                 processingRecords: item.processingRecords || [],
+                isDeleted: false,
+                deletedAt: null,
                 createdAt: item.createdAt || new Date().toISOString()
             };
             finalDocs.push(newDoc);
@@ -3188,14 +3570,20 @@ function confirmRestore() {
         } else if (overwrite) {
             const index = docIndexById[matchDoc.id];
             if (index !== undefined && index !== -1) {
+                const wasDeleted = matchDoc.isDeleted;
                 finalDocs[index] = {
                     ...matchDoc,
                     ...item,
                     id: matchDoc.id,
                     processingRecords: item.processingRecords || matchDoc.processingRecords || [],
-                    completedRemark: item.completedRemark || matchDoc.completedRemark || ''
+                    completedRemark: item.completedRemark || matchDoc.completedRemark || '',
+                    isDeleted: false,
+                    deletedAt: null
                 };
                 overwriteCount++;
+                if (wasDeleted) {
+                    restoredFromTrash++;
+                }
             }
         } else {
             skipCount++;
@@ -3203,6 +3591,19 @@ function confirmRestore() {
     });
 
     saveDocuments(finalDocs);
+
+    const totalAffected = addCount + overwriteCount;
+    if (totalAffected > 0) {
+        const sampleDoc = finalDocs.find(function(d) {
+            return restoreData.some(function(r) { return r.docNumber === d.docNumber; });
+        }) || finalDocs[0];
+        addAuditLog(AUDIT_ACTION.RESTORE, sampleDoc, null, {
+            addCount: addCount,
+            overwriteCount: overwriteCount,
+            skipCount: skipCount,
+            restoredFromTrash: restoredFromTrash
+        });
+    }
 
     let msg = '';
     if (addCount > 0) {
@@ -3282,6 +3683,7 @@ function extendDeadline(docId, days) {
     if (docIndex === -1) return false;
 
     const doc = documents[docIndex];
+    const oldDoc = { ...doc };
     const currentDeadline = new Date(getEffectiveDeadline(doc));
     currentDeadline.setDate(currentDeadline.getDate() + parseInt(days));
     const newDeadline = formatDateInput(currentDeadline);
@@ -3299,6 +3701,7 @@ function extendDeadline(docId, days) {
     });
 
     saveDocuments(documents);
+    addAuditLog(AUDIT_ACTION.EXTEND, doc, oldDoc, { extendDays: parseInt(days) });
     updateStats();
     renderDocumentList();
     renderReminderCenter();
@@ -3618,6 +4021,256 @@ function confirmSnooze() {
     }
 }
 
+function renderAuditLogList() {
+    const logs = getAuditLogs();
+    const listEl = document.getElementById('auditLogList');
+    const countEl = document.getElementById('auditLogTotalCount');
+
+    let filteredLogs = logs;
+    if (auditLogKeyword) {
+        const kw = auditLogKeyword.toLowerCase();
+        filteredLogs = logs.filter(function(log) {
+            return log.docTitle.toLowerCase().includes(kw) ||
+                   log.docNumber.toLowerCase().includes(kw) ||
+                   log.actionText.toLowerCase().includes(kw) ||
+                   log.beforeSummary.toLowerCase().includes(kw) ||
+                   log.afterSummary.toLowerCase().includes(kw);
+        });
+    }
+
+    if (countEl) countEl.textContent = filteredLogs.length;
+
+    if (filteredLogs.length === 0) {
+        listEl.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📝</div>
+                <p class="empty-text">暂无审计日志记录</p>
+            </div>
+        `;
+        return;
+    }
+
+    listEl.innerHTML = filteredLogs.map(function(log) {
+        const actionIconMap = {
+            'create': '➕',
+            'edit': '✏️',
+            'complete': '✅',
+            'extend': '⏰',
+            'batch_complete': '✅',
+            'batch_delete': '🗑',
+            'batch_department': '🏢',
+            'import': '📋',
+            'restore': '♻️',
+            'delete': '🗑',
+            'restore_recycle': '↩',
+            'batch_restore_recycle': '↩',
+            'permanent_delete': '✕',
+            'batch_permanent_delete': '✕',
+            'empty_recycle_bin': '🗑'
+        };
+        const icon = actionIconMap[log.action] || '📝';
+        const timeStr = formatDateTime(log.timestamp);
+        const extraText = log.extra && log.extra.count ? '（共 ' + log.extra.count + ' 条）' : '';
+
+        return `
+            <div class="audit-log-item">
+                <div class="audit-log-icon">${icon}</div>
+                <div class="audit-log-content">
+                    <div class="audit-log-header">
+                        <span class="audit-log-action">${escapeHtml(log.actionText)}${extraText}</span>
+                        <span class="audit-log-time">${escapeHtml(timeStr)}</span>
+                    </div>
+                    <div class="audit-log-title">
+                        ${log.docTitle ? escapeHtml(log.docTitle) : '-'}
+                        ${log.docNumber ? '<span class="audit-log-doc-number">[' + escapeHtml(log.docNumber) + ']</span>' : ''}
+                    </div>
+                    ${log.changes ? '<div class="audit-log-changes">变更：' + escapeHtml(log.changes) + '</div>' : ''}
+                    <div class="audit-log-summary">
+                        <div class="audit-log-before">
+                            <span class="audit-summary-label">变更前：</span>
+                            <span class="audit-summary-value">${escapeHtml(log.beforeSummary)}</span>
+                        </div>
+                        <div class="audit-log-after">
+                            <span class="audit-summary-label">变更后：</span>
+                            <span class="audit-summary-value">${escapeHtml(log.afterSummary)}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function searchAuditLogs() {
+    const input = document.getElementById('auditLogSearchInput');
+    if (input) {
+        auditLogKeyword = input.value.trim();
+    }
+    renderAuditLogList();
+}
+
+function renderRecycleBinList() {
+    const docs = getRecycleBinDocuments();
+    const listEl = document.getElementById('recycleBinList');
+    const countEl = document.getElementById('recycleBinCount');
+
+    if (countEl) countEl.textContent = docs.length;
+
+    if (docs.length === 0) {
+        listEl.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">🗑</div>
+                <p class="empty-text">回收站为空</p>
+                <button class="btn btn-primary" onclick="switchView('list')">返回列表</button>
+            </div>
+        `;
+        updateRecycleBatchToolbar();
+        return;
+    }
+
+    const validIds = docs.map(d => d.id);
+    recycleSelectedIds = recycleSelectedIds.filter(id => validIds.includes(id));
+
+    listEl.innerHTML = docs.map(function(doc) {
+        const isSelected = recycleSelectedIds.includes(doc.id);
+        const flowStatus = getDocumentStatus(doc);
+        const flowStatusText = getFlowStatusText(flowStatus);
+        const undertakingDept = doc.undertakingDepartment || doc.department || '';
+        const deletedTime = formatDateTime(doc.deletedAt);
+
+        return `
+            <div class="recycle-bin-item ${isSelected ? 'selected' : ''}">
+                <div class="recycle-checkbox" onclick="event.stopPropagation(); toggleRecycleSelect('${doc.id}')">
+                    <span class="card-checkbox ${isSelected ? 'checked' : ''}">${isSelected ? '✓' : ''}</span>
+                </div>
+                <div class="recycle-content" onclick="viewRecycleDocument('${doc.id}')">
+                    <div class="recycle-header">
+                        <div class="recycle-title">${escapeHtml(doc.title)}</div>
+                        <div class="recycle-tags">
+                            <span class="doc-tag urgency-${doc.urgency}">${doc.urgency}</span>
+                            <span class="doc-tag flow-status-tag-${flowStatus}">${flowStatusText}</span>
+                        </div>
+                    </div>
+                    <div class="recycle-info">
+                        <div class="doc-info-item">
+                            <span class="doc-info-label">来文单位</span>
+                            <span class="doc-info-value">${escapeHtml(doc.fromUnit)}</span>
+                        </div>
+                        <div class="doc-info-item">
+                            <span class="doc-info-label">文号</span>
+                            <span class="doc-info-value">${escapeHtml(doc.docNumber)}</span>
+                        </div>
+                        <div class="doc-info-item">
+                            <span class="doc-info-label">承办科室</span>
+                            <span class="doc-info-value">${escapeHtml(undertakingDept)}</span>
+                        </div>
+                        <div class="doc-info-item">
+                            <span class="doc-info-label">删除时间</span>
+                            <span class="doc-info-value recycle-deleted-time">${escapeHtml(deletedTime)}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="recycle-actions">
+                    <button class="action-btn restore" onclick="event.stopPropagation(); restoreFromRecycleBin('${doc.id}')">恢复</button>
+                    <button class="action-btn delete" onclick="event.stopPropagation(); permanentDeleteFromRecycleBin('${doc.id}')">彻底删除</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    updateRecycleBatchToolbar();
+}
+
+function toggleRecycleSelect(id) {
+    const index = recycleSelectedIds.indexOf(id);
+    if (index > -1) {
+        recycleSelectedIds.splice(index, 1);
+    } else {
+        recycleSelectedIds.push(id);
+    }
+    renderRecycleBinList();
+}
+
+function toggleRecycleSelectAll() {
+    const docs = getRecycleBinDocuments();
+    if (recycleSelectedIds.length === docs.length && docs.length > 0) {
+        recycleSelectedIds = [];
+    } else {
+        recycleSelectedIds = docs.map(doc => doc.id);
+    }
+    renderRecycleBinList();
+}
+
+function updateRecycleBatchToolbar() {
+    const toolbar = document.getElementById('recycleBatchToolbar');
+    if (!toolbar) return;
+
+    const docs = getRecycleBinDocuments();
+    const countEl = document.getElementById('recycleSelectedCount');
+    const selectAllCheckbox = document.getElementById('recycleSelectAllCheckbox');
+
+    if (recycleSelectedIds.length > 0) {
+        toolbar.style.display = 'flex';
+        if (countEl) countEl.textContent = recycleSelectedIds.length;
+        if (selectAllCheckbox) selectAllCheckbox.checked = docs.length > 0 && recycleSelectedIds.length === docs.length;
+    } else {
+        toolbar.style.display = 'none';
+    }
+}
+
+function restoreFromRecycleBin(id) {
+    if (restoreDocument(id)) {
+        const idx = recycleSelectedIds.indexOf(id);
+        if (idx > -1) recycleSelectedIds.splice(idx, 1);
+        showToast('收文已恢复', 'success');
+        renderRecycleBinList();
+        updateStats();
+    }
+}
+
+function permanentDeleteFromRecycleBin(id) {
+    if (permanentDeleteDocument(id)) {
+        const idx = recycleSelectedIds.indexOf(id);
+        if (idx > -1) recycleSelectedIds.splice(idx, 1);
+        showToast('收文已彻底删除', 'success');
+        renderRecycleBinList();
+    }
+}
+
+function batchRestoreFromRecycle() {
+    if (recycleSelectedIds.length === 0) {
+        showToast('请先选择要恢复的收文', 'warning');
+        return;
+    }
+    const count = batchRestoreDocuments(recycleSelectedIds);
+    if (count > 0) {
+        recycleSelectedIds = [];
+        showToast('成功恢复 ' + count + ' 条收文', 'success');
+        renderRecycleBinList();
+        updateStats();
+    }
+}
+
+function batchPermanentDeleteFromRecycle() {
+    if (recycleSelectedIds.length === 0) {
+        showToast('请先选择要彻底删除的收文', 'warning');
+        return;
+    }
+    const count = batchPermanentDelete(recycleSelectedIds);
+    if (count > 0) {
+        recycleSelectedIds = [];
+        showToast('成功彻底删除 ' + count + ' 条收文', 'success');
+        renderRecycleBinList();
+    }
+}
+
+function viewRecycleDocument(id) {
+    const allDocs = loadAllDocuments();
+    const doc = allDocs.find(d => d.id === id);
+    if (!doc) return;
+    viewDocument(id);
+}
+
 function init() {
     document.getElementById('documentForm').addEventListener('submit', saveDocument);
 
@@ -3637,6 +4290,14 @@ function init() {
         clearTimeout(window.templateDupTimer);
         window.templateDupTimer = setTimeout(updateTemplateDupTip, 200);
     });
+
+    const auditSearchInput = document.getElementById('auditLogSearchInput');
+    if (auditSearchInput) {
+        auditSearchInput.addEventListener('input', function() {
+            clearTimeout(window.auditSearchTimer);
+            window.auditSearchTimer = setTimeout(searchAuditLogs, 300);
+        });
+    }
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
